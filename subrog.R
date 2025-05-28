@@ -7,6 +7,36 @@ library(caret)
 
 # 1. Data Loading ----
 sasoutput <- read_excel("Scenarier20190909B4_found0325.xls")
+
+
+# Create the density plot for PUdvaskF
+density_plot_PUdvaskF <- ggplot(sasoutput, aes(x = PUdvaskF)) +
+  geom_density(fill = "#377ea2", color = "#377ea2", alpha = 0.5) + # Using a custom light orange color
+  labs(
+    #title = "Distribution of Predicted annual Leaching",
+    x = "NLES5 predicted annual leaching (PUdvaskF)",
+    y = "Density"
+  ) +
+  theme_minimal() + # Consistent with your previous plots
+  theme(
+    #plot.title = element_text(hjust = 0.5, face = "bold"), # Center and bold title
+    #axis.title = element_text(face = "bold"), # Bold axis titles
+    panel.grid.major = element_line(colour = "grey90")#, # Lighter grid lines
+    #panel.grid.minor = element_blank(colour = "grey90") # Remove minor grid lines
+  )
+
+# Print the plot
+print(density_plot_PUdvaskF)
+
+# You can save the plot if needed
+ggsave("density_plot_PUdvaskF.png",
+plot = density_plot_PUdvaskF,
+units = "mm",
+width = 150,
+height = 100,
+dpi = 300)
+
+
 table(sasoutput$SoilG)
 # 1.1. Renaming and grouping ----
 # Is d or p the percolation groups why some are negative?
@@ -48,8 +78,25 @@ rf_surrogate_model <- randomForest(
   sampsize = nrow(sasoutput_fil), # Use entire dataset for each tree (pure bagging mode)
   importance = TRUE  # Still useful for initial importance checks
 )
-
 print(rf_surrogate_model)
+
+library(ranger)
+
+rf_ranger_model <- ranger(
+  formula = PUdvaskF ~ .,
+  data = sasoutput_fil,
+  num.trees = 5000,
+  mtry = ncol(sasoutput_fil) - 1,
+  min.node.size = 1,
+  sample.fraction = 1, # Use entire dataset for each tree (pure bagging)
+  importance = "impurity"
+)
+
+print(rf_ranger_model)
+# Compare the two models
+
+plot(rf_surrogate_model$predicted,rf_ranger_model$predictions)
+
 
 cat("R-squared of High-Fidelity Random Forest on training data:",
     rf_surrogate_model$rsq[length(rf_surrogate_model$rsq)], "\n")
@@ -68,7 +115,7 @@ saveRDS(rf_surrogate_model, "rf_surrogate_model_max_fidelity.rds")
 ## --- Create a dummy variables for categories ---
 # Create a dummyVars object
 
-dummy_model <- dummyVars(~ ., sep = '_', data = sasoutput_fil)
+dummy_model <- dummyVars(~ ., sep="_",data = sasoutput_fil)
 
 # Apply the dummy encoding
 ohe_data <- data.frame(predict(dummy_model, newdata = sasoutput_fil))
@@ -109,9 +156,11 @@ cat("RMSE of High-Fidelity XGBoost on training data:", xgb_rmse_train, "\n")
 cat("XGBoost R-squared (Training):", cor(xgb_predictions_train, ohe_data$PUdvaskF), "\n")
 
 # You might want to save this model
-#saveRDS(xgb_surrogate_model, "xgb_surrogate_model_high_fidelity.rds")
-#xgb.save(xgb_surrogate_model, "xgb_surrogate_model_high_fidelity.model")
+saveRDS(xgb_surrogate_model, "xgb_surrogate_model_high_fidelity.rds")
+xgb.save(xgb_surrogate_model, "xgb_surrogate_model_high_fidelity.model")
 #xgb_surrogate_model <- readRDS("xgb_surrogate_model_high_fidelity.rds")
+
+#xgb_surrogate_model <- xgb.load("xgb_surrogate_model_high_fidelity.model")
 
 # --- Comparison ---
 cat("\n--- Training Performance Comparison ---\n")
@@ -123,8 +172,57 @@ cat("XGBoost RMSE (Training):", xgb_rmse_train, "\n")
 plot(xgb_predictions_train, ohe_data$PUdvaskF)
 abline(0,1, col="orange3")
 plot(rf_surrogate_model$predicted, ohe_data$PUdvaskF)
+plot(rf_ranger_model$predictions, ohe_data$PUdvaskF)
 abline(0,1)
+plot(rf_ranger_model$predictions, xgb_predictions_train)
 
+# Create a data frame for observed values
+df_observed <- data.frame(
+  PUdvaskF = sasoutput_fil$PUdvaskF,
+  Type = "Predicted by NLES5"
+)
+
+# Create a data frame for predicted values
+df_predicted <- data.frame(
+  PUdvaskF = xgb_predictions_train,
+  Type = "Predicted by XGBoost"
+)
+
+# Combine the two data frames
+combined_df <- rbind(df_observed, df_predicted)
+
+# Ensure 'Type' is a factor for proper plotting and legend ordering
+combined_df$Type <- factor(combined_df$Type, levels = c("Predicted by XGBoost", "Predicted by NLES5"))
+
+# 2. Create the combined density plot
+combined_density_plot <- ggplot(combined_df, aes(x = PUdvaskF, fill = Type, color = Type)) +
+  geom_density(alpha = 0.2, linewidth = 0.3) + # Use linewidth for the outline
+  scale_fill_manual(values = c("Predicted by NLES5" = "darkgreen", "Predicted by XGBoost" = "steelblue")) + # Custom fill colors
+  scale_color_manual(values = c("Predicted by NLES5" = "darkgreen", "Predicted by XGBoost" = "darkblue")) + # Custom outline colors
+  labs(
+    x = "Annual N leaching (PUdvaskF)",
+    y = "Density",
+    fill = "Data Type",
+    color = "Data Type"
+  ) +
+  theme_minimal() +
+  theme(
+    #plot.title = element_text(hjust = 0.5, face = "bold"),
+    #axis.title = element_text(face = "bold"),
+    legend.position = "bottom", # Place legend at the bottom
+    legend.title = element_blank(), # Remove legend title for brevity
+    panel.grid.major = element_line(colour = "grey90"),
+    panel.grid.minor = element_blank()
+  )
+
+print(combined_density_plot)
+
+ggsave("density_plot_PUdvaskF.png",
+       plot = combined_density_plot,
+       units = "mm",
+       width = 150,
+       height = 100,
+       dpi = 300)
 
 # 4. Results and visualization ----
 # Variable Importance
@@ -165,16 +263,16 @@ translate <- c(
   "Indb_aar"="Year",
 
   # N
-  "NS"="N mineral Spring",
-  "na"="N mineral Autum",
-  "nlevelMin1"="N mineral prev. year",
-  "nlevelMin2"="N mineral 2nd prev. year",
-  "NlevelFix0"="N Fixation",
-  "NlevelFix1"="N Fixation prev. year",
-  "NlevelFix2"="N Fixation 2nd prev. year",
-  "NlevelGod0"="N Organic",
-  "NlevelGod1"="N Organic prev. year",
-  "NlevelGod2"="N Fixation 2nd prev. year",
+  "NS"="N Min. Spring",
+  "na"="N Min. Autum",
+  "nlevelMin1"="N Min. prev. year",
+  "nlevelMin2"="N Min. 2nd prev. year",
+  "NlevelFix0"="N Fix.",
+  "NlevelFix1"="N Fix. prev. year",
+  "NlevelFix2"="N Fix. 2nd prev. year",
+  "NlevelGod0"="N Org.",
+  "NlevelGod1"="N Org. prev. year",
+  "NlevelGod2"="N Org. 2nd prev. year",
   "Nudb"="N grazing",
   "TN"="Total Soil N",
 
@@ -185,11 +283,12 @@ translate <- c(
   "Vfu" = "Winter crop prev. year",
 
   #P
-  "d1"="Percolation April to August",
-  "d2"="Percolation September to March",
-  "d3"="Percolation September to March prev. year",
-  "SoilGS"="Soil texture",
-  "SoilGC"="Soil texture",
+  "d1"="Perc. Apr.to Aug.",
+  "d2"="Perc. Sep.to Mar.",
+  "d3"="Perc. Sep.to Mar. prev. year",
+  "SoilGS"="Soil group",
+  "SoilGC"="Soil group",
+  "SoilG"="Soil group",
 
   #S
   "CU"="Clay")
@@ -224,6 +323,7 @@ asignation <- c(
   "d3"="P",
   "SoilGS"="P",
   "SoilGC"="P",
+  "SoilG"="P",
 
   #S
   "CU"="S"
@@ -231,19 +331,28 @@ asignation <- c(
 
 # 4.3 Overal results Input contribution -----
 
+importance_rf <- as.data.frame(rf_surrogate_model$importance) |>
+  bind_cols('BaseFeature'=row.names(as.data.frame(rf_surrogate_model$importance)),
+             'ranger'=(rf_ranger_model$variable.importance)/sum(rf_ranger_model$variable.importance)*100) |>
+  mutate(Input = recode(BaseFeature, !!!translate)) |>
+  mutate(IncMSE_rel = `%IncMSE` / sum(`%IncMSE`) * 100,
+         IncNodePurity_rel=IncNodePurity/sum(IncNodePurity) * 100)
+
+
 # Group by the identified crop prefixes and sum their contributions
 contributions <- importance_matrix_processed |>
   mutate(Component = recode(BaseFeature, !!!asignation),
            Input = recode(BaseFeature, !!!translate))|>
     group_by(Input, Component) |>
     summarise(
-      Total_Gain = sum(Gain),
-      Total_Cover = sum(Cover),
-      Total_Frequency = sum(Frequency)
+      Total_Gain = sum(Gain)*100,
+      Total_Cover = sum(Cover)*100,
+      Total_Frequency = sum(Frequency)*100
     ) |>
-    arrange(desc(Total_Frequency))
-
-
+  left_join(importance_rf, by = 'Input') |>
+    arrange(Component) |>
+  mutate(Input = factor(Input, levels = unique(Input)),
+         Component = factor(Component, levels = c("S","P","C","N","Y")))
 
 # Define color palette components.
 fixed_colors <- c(
@@ -255,15 +364,28 @@ fixed_colors <- c(
 )
 
 # Visualization: Point Plot
-pp_plot <- contributions |> pivot_longer(
-  cols = c(Total_Gain, Total_Cover, Total_Frequency),
+pp_plot <-
+  contributions |> pivot_longer(
+  cols = c(
+    #xgb
+    Total_Gain,
+    #Total_Cover,
+    Total_Frequency#,
+    #rf
+    #IncMSE_rel,
+    #ranger,
+    # IncNodePurity_rel
+    ),
   names_to = "metric",
   values_to = "contribution"
 ) |>
+  arrange(Component)|>
+  mutate(metric = factor(metric, levels = c("Total_Gain", "Total_Frequency"))) |>
   ggplot(aes(
     x = contribution ,
-    y = fct_rev(Input),
-    color = Component
+    y = fct_reorder(Input, desc(Component)),
+    color = Component,
+    fill= metric
   )) +
   geom_point(size = 3) +
   theme_minimal() +
@@ -272,10 +394,10 @@ pp_plot <- contributions |> pivot_longer(
   geom_segment(aes(
     x = 0,
     xend = contribution,
-    y = fct_rev(Input),
-    yend = fct_rev(Input)
+    y = Input,
+    yend = Input
   )) +
-  facet_wrap( ~ metric) +
+  #facet_grid(. ~ metric) +
   scale_y_discrete(
     labels = function(x)
       gsub("", "", x)
@@ -283,14 +405,71 @@ pp_plot <- contributions |> pivot_longer(
 
 pp_plot
 
+seggain <-
+  contributions |>
+  ggplot(aes(
+    x = Total_Gain ,
+    y = fct_reorder(Input, desc(Component)),
+    color = Component
+  )) +
+  geom_point(size = 3) +
+  theme_minimal() +
+  scale_color_manual(values = fixed_colors) +
+  labs(x = "Relative contribution (%)", y = "Input", color = "Component") +
+  geom_segment(aes(
+    x = 0,
+    xend = Total_Gain,
+    y = Input,
+    yend = Input
+  )) +
+  scale_y_discrete(
+    labels = function(x)
+      gsub("", "", x)
+  )
+
+segfreq <-
+  contributions |>
+  ggplot(aes(
+    x = Total_Frequency ,
+    y = fct_reorder(Input, desc(Component)),
+    color = Component
+  )) +
+  geom_point(size = 3) +
+  theme_minimal() +
+  scale_color_manual(values = fixed_colors) +
+  labs(x = "Feauture frequency (%)", y = "Input", color = "Component") +
+  geom_segment(aes(
+    x = 0,
+    xend = Total_Frequency,
+    y = Input,
+    yend = Input
+  )) +
+  scale_y_discrete(
+    labels = function(x)
+      gsub("", "", x)
+  )
+
+
 # Visualization: Stacked Bar Plot
 bar_plot <-
   contributions |> pivot_longer(
-    cols = c(Total_Gain, Total_Cover, Total_Frequency),
+    cols = c(
+      #xgb
+      Total_Gain,
+      #Total_Cover,
+      Total_Frequency#,
+      #rf
+      #IncMSE_rel,
+      #ranger,
+      # IncNodePurity_rel
+    ),
     names_to = "metric",
     values_to = "contribution"
-  ) |> ggplot(aes(y = contribution,
-                            x = 1, group = Input)) +
+  ) |>
+  mutate(metric = factor(metric, levels = c("Total_Gain", "Total_Frequency"))) |>
+  ggplot(aes(y = contribution,
+                            x = 1,
+                  group = fct_reorder(Input, -desc(Component)))) +
   geom_bar(
     stat = "identity",
     position = "stack",
@@ -299,9 +478,8 @@ bar_plot <-
     linewidth = 0.1
   ) +
   geom_text(
-    aes(label = ifelse(
-      metric >= 1, paste(gsub(" ", "", Input), ";", round(contribution, 2), " "), ""
-    )),
+    aes(label = ifelse(contribution > 1.5, paste(gsub("", "", Input), ";", round(contribution, 1), " "), paste(""))
+        ),
     position = position_stack(vjust = 0.5),
     hjust = 0.5,
     angle = 0,
@@ -313,7 +491,216 @@ bar_plot <-
   labs(y = "Relative contribution (%)", x = "", fill = "Component") +
   scale_x_continuous(breaks = NULL) +
   theme(axis.text.x = element_blank(), axis.ticks.x = element_blank())+
-  facet_wrap(~metric)
+  facet_grid(.~metric)
+
+bar_plot
+
+# second option for report
+
+
+ptotgain <- contributions |>
+ggplot(aes(y = Total_Gain,
+                 x = 1,
+                 group = fct_reorder(Input, -desc(Component)))) +
+  geom_bar(
+    stat = "identity",
+    position = "stack",
+    aes(fill = Component),
+    color = "#FFF",
+    linewidth = 0.1
+  ) +
+  geom_text(
+    aes(label = ifelse(Total_Gain > 2, paste(gsub("", "", Input), ";", round(Total_Gain, 1), ""), paste(" "))
+    ),
+    position = position_stack(vjust = 0.5),
+    hjust = 0.5,
+    angle = 0,
+    color = "white",
+    size = 3
+  ) +
+  theme_minimal() +
+  scale_fill_manual(values = fixed_colors) +
+  labs(y = " ",
+       x = "", fill = "Component") +
+  scale_x_continuous(breaks = NULL) +
+  theme(axis.text.x = element_blank(), axis.ticks.x = element_blank()) # Total_Gain
+
+pfrequency <- contributions |>
+  ggplot(aes(y = Total_Frequency,
+             x = 1,
+             group = fct_reorder(Input, -desc(Component)))) +
+  geom_bar(
+    stat = "identity",
+    position = "stack",
+    aes(fill = Component),
+    color = "#FFF",
+    linewidth = 0.1,
+    alpha = 3
+  ) +
+  geom_text(
+    aes(label = ifelse(Total_Frequency > 1.5, paste(gsub("", "", Input), ";", round(Total_Frequency, 1), " "), paste(""))
+    ),
+    position = position_stack(vjust = 0.5),
+    hjust = 0.5,
+    angle = 0,
+    color = "white",
+    size = 3
+  ) +
+  theme_minimal() +
+  scale_fill_manual(values = fixed_colors) +
+  labs(y = "Feauture frequency (%)", x = "", fill = "Component") +
+  scale_x_continuous(breaks = NULL) +
+  theme(axis.text.x = element_blank(), axis.ticks.x = element_blank()) #total frequency
+
+paddedgain <- contributions |>
+  select(Component, Total_Gain) |>
+  group_by(Component) |>
+  summarise(contribution = sum(Total_Gain), .groups = "drop") |>
+  mutate(
+    metric = "Total_Gain_Component", # Label for the summary bar
+    Input = Component,# Use Component as label
+    percentage = contribution / sum(contribution) * 100
+  ) |>
+  ggplot(aes(y = percentage,
+                  x = 1,
+                  group = fct_reorder(Input, -desc(Component)))) +
+  geom_bar(
+    stat = "identity",
+    position = "stack",
+    aes(fill = Component),
+    color = "#FFF",
+    linewidth = 0.1
+  ) +
+  geom_text(
+    aes(label = ifelse(percentage > 1.5, paste(gsub("", "", Input), ";", round(percentage, 1), " "), paste(""))
+    ),
+    position = position_stack(vjust = 0.5),
+    hjust = 0.5,
+    angle = 0,
+    color = "white",
+    size = 3
+  ) +
+  theme_minimal() +
+  scale_fill_manual(values = fixed_colors) +
+  labs(y = "Relative contribution (%)", x = "", fill = "Component") +
+  scale_x_continuous(breaks = NULL) +
+  theme(axis.text.x = element_blank(), axis.ticks.x = element_blank()) #total contr comp
+
+
+# Combine with custom widths
+gain_plot <-
+paddedgain +
+  theme(
+    axis.ticks.y = element_blank(),
+    legend.position = "none"
+  ) +
+  ptotgain +
+    theme(axis.ticks.y = element_blank(),
+          axis.text.y = element_blank(),
+          legend.position = "bottom") +
+  seggain +
+      theme(axis.ticks.y = element_blank(), legend.position = "none") +
+    plot_layout(
+      ncol = 4,
+      widths = c(0.8,2.1,2)
+    )
+
+ggsave("gain_plot.png",
+              gain_plot,
+              units = "mm",
+              width = 183,
+              height = 210)
+
+
+freq_plot <-
+  segfreq +
+  theme(axis.ticks.y = element_blank(),
+        legend.position = "none") +
+  pfrequency + theme(
+    axis.text.y = element_blank(),
+    axis.ticks.y = element_blank(),
+    legend.position = "bottom"
+  )+
+  plot_layout(
+    ncol = 2,
+    widths = c(1,1.5),
+    axis_titles = 'collect_y'
+  )
+
+ggsave("freq_plot.png",
+              freq_plot,
+              units = "mm",
+              width = 183,
+              height = 200)
+
+
+# Ensure necessary packages are loaded
+library(tidyverse)
+library(forcats) # For fct_reorder
+
+# --- Assuming 'contributions' data frame and 'fixed_colors' are defined ---
+# (from your previous code snippet)
+
+# 1. Prepare the data for the dumbbell plot
+# We need the data in a 'long' format for the points, and a 'wide' format for the segments
+dumbbell_data_long <- contributions |>
+  pivot_longer(
+    cols = c(Total_Gain, Total_Frequency), # Select the two metrics you want to compare
+    names_to = "metric",
+    values_to = "contribution"
+  ) |>
+  arrange(Component) |>
+  mutate(metric = factor(metric, levels = c("Total_Gain", "Total_Frequency"))) # Ensure order for legend
+
+# To draw the connecting segments, we need the start (Gain) and end (Frequency) points
+# on the same row for each Input variable.
+dumbbell_data_wide <- dumbbell_data_long |>
+  pivot_wider(
+    names_from = metric,
+    values_from = contribution
+  ) |>
+  select(Input, Component, Total_Gain, Total_Frequency) # Select relevant columns
+
+# 2. Create the Dumbbell Plot
+dumbbell_plot <- ggplot(dumbbell_data_long, aes(y = fct_reorder(Input, -desc(Component)), x = contribution)) +
+  # First, add the connecting segments
+  geom_segment(data = dumbbell_data_wide,
+               aes(x = Total_Gain, xend = Total_Frequency, y = Input, yend = Input),
+               color = "grey60", linewidth = 0.8) + # Grey segments to connect the points
+  # Then, add the points for each metric (Gain and Frequency)
+  geom_point(aes(color = Component, shape = metric), size = 4) + # Color by Component, Shape by Metric
+  scale_color_manual(values = fixed_colors) + # Use your predefined component colors
+  scale_shape_manual(values = c("Total_Gain" = 16, "Total_Frequency" = 17), # Use common point shapes (solid circle, solid triangle)
+                     labels = c("Total_Gain" = "Gain", "Total_Frequency" = "Frequency")) + # Labels for shape legend
+  labs(
+    #title = "Relative contribution of input variables (Gain vs. Frequency)",
+    x = "Relative contribution (%)",
+    y = "Input",
+    color = "Component", # Legend title for component colors
+    shape = "Metric" # Legend title for metric shapes
+  ) +
+  theme_minimal() +
+  theme(
+    plot.title = element_text(hjust = 0.5), # Center and bold plot title
+    #axis.title = element_text(face = "bold"), # Bold axis titles
+    legend.position = "right", # Place legend at the bottom
+    legend.box = "right", # Arrange legend items horizontally
+    panel.grid.major.y = element_blank(), # Remove horizontal grid lines for cleaner look
+    panel.grid.minor = element_blank(), # Remove minor grid lines
+    axis.text.y = element_text(angle = 0, hjust = 1) # Ensure Y-axis labels are readable
+  )
+
+# Print the plot
+print(dumbbell_plot)
+
+# You can save the plot if needed
+ggsave("dumbbell_plot_contribution.png",
+plot = dumbbell_plot,
+width = 183,
+units= "mm",
+height = 150,
+dpi = 300)
+
 
 # 📈 1. Gain (Most Commonly Used)
 # Definition: The average improvement in accuracy brought by a feature to the branches it is used in.
@@ -346,27 +733,181 @@ bar_plot <-
 
 library(pdp)
 
-# Assume you have a trained XGBoost model and training data
-# X: feature matrix, y: target vector
-
 # Train a sample model (if needed)
-xgb_model <- xgboost(data = as.matrix(X), label = y, nrounds = 100, objective = "reg:squarederror", verbose = 0)
+#xgb_model <- xgboost(data = as.matrix(X), label = y, nrounds = 100, objective = "reg:squarederror", verbose = 0)
 
 # Create a partial dependence plot for a feature
-pdp_result <- partial(
+pdp_result_xgb <- pdp::partial(
   object = xgb_surrogate_model,
-  pred.var = "Clay",
-  train = as.data.frame(ohe_data),
-  grid.resolution = 50
+  pred.var = 'Indb_aar',
+  train = as.data.frame(ohe_data |> dplyr::select(xgb_surrogate_model$feature_names)),
+  grid.resolution = 100
+)
+
+pdp_result_rf <- pdp::partial(
+  object = rf_surrogate_model,
+  pred.var = 'Indb_aar',
+  train = as.data.frame(sasoutput_fil |> dplyr::select(row.names(rf_surrogate_model$importance))),
+  grid.resolution = 100
 )
 
  # Plot with ggplot2
-ggplot(pdp_result, aes(x = feature1, y = yhat)) +
-  geom_line(color = "steelblue", size = 1.2) +
+ggplot(pdp_result_xgb, aes(x = Indb_aar, y = yhat)) +
+  geom_point(color = "steelblue", size = 1) +
+  geom_line(color = "steelblue", size = .8) +
+  geom_smooth(method = "loess", se = TRUE, color = "steelblue", size = 0.5) +
   labs(
     title = "Partial Dependence Plot",
-    x = "Feature 1",
+    x = "Indb_aar",
     y = "Predicted Response"
   ) +
   theme_minimal()
+
+ggplot(pdp_result_rf, aes(x = Indb_aar, y = yhat)) +
+  geom_point(color = "steelblue", size = 1) +
+  geom_line(color = "steelblue", size = .8) +
+  geom_smooth(method = "loess", se = TRUE, color = "steelblue", size = 0.5) +
+  labs(
+    title = "Partial Dependence Plot",
+    x = "Indb_aar",
+    y = "Predicted Response"
+  ) +
+  theme_minimal()
+
+
+# Function to compute PDP for both models
+compute_pdp <- function(feature) {
+
+  pdp_result_xgb <- pdp::partial(
+    object = xgb_surrogate_model,
+    pred.var = feature,
+    train = as.data.frame(ohe_data |> dplyr::select(xgb_surrogate_model$feature_names)),
+    grid.resolution = 50
+  ) |> mutate(variable = feature, model = "XGBoost") |>
+    rename(covariable = feature) |>
+    select(variable, model, yhat,covariable)
+
+  pdp_result_rf <- pdp::partial(
+    object = rf_surrogate_model,
+    pred.var = feature,
+    train = as.data.frame(sasoutput_fil |> dplyr::select(row.names(rf_surrogate_model$importance))),
+    grid.resolution = 50
+  )|> mutate(variable = feature, model = "rf")|>
+    rename(covariable = feature) |>
+    select(variable, model, yhat,covariable)
+
+  rbind(pdp_result_xgb, pdp_result_rf)
+}
+
+# Compute PDPs for all features
+pdp_cont <- lapply(setdiff(row.names(rf_surrogate_model$importance),
+                           categorical_vars),
+                   compute_pdp)
+saveRDS(pdp_cont, "pdp_cont.RDS")
+
+pdp_cont <- readRDS(pdp_cont.RDS)
+# Plot all PDPs in a faceted plot
+pdpplot <- do.call(rbind,pdp_cont) |>
+         filter(model=="XGBoost")|>
+  mutate(Component=recode(variable, !!!asignation)) |>
+  ggplot(aes(x = covariable, y = yhat, color=Component)) +
+  geom_line(size = 0.5) +
+  geom_point(size = .5) +
+  geom_smooth(method = "loess", se = TRUE, size = 0.8) +
+  scale_color_manual(values = fixed_colors)+
+  facet_wrap(~ variable, scales = "free_x", ncol=3) +
+  labs(
+    x = "Feature Value",
+    y = "Predicted Response"
+  ) +
+  theme_light() +
+  theme(
+    panel.grid.minor = element_blank(),
+    strip.text = element_text(size = 10,),
+    axis.title = element_text(size = 10),
+    axis.text = element_text(size = 8),
+    legend.position = "bottom",
+    legend.title = element_text(size = 10),
+    legend.text = element_text(size = 9))
+
+ggsave("pdp.png",
+       plot = pdpplot,
+       width = 183,
+       units= "mm",
+       height = 220,
+       dpi = 300)
+
+# --- 4.5. Partial Dependence Plots for Categorical Variables ----
+
+
+
+
+feature <- "d2"  # or any other feature name
+
+# Create the sequence of values for the feature
+feature_vals <- seq(
+  min(ohe_data[[feature]], na.rm = TRUE),
+  max(ohe_data[[feature]], na.rm = TRUE),
+  length.out = 50
+)
+
+# Create the prediction grid with correct column names
+pred_grid <- expand.grid(
+  SoilG_1 = factor(c(0, 1)),
+  dummy = feature_vals
+)
+
+# Rename 'dummy' to the actual feature name
+names(pred_grid)[names(pred_grid) == "dummy"] <- feature
+
+# Now call pdp::partial
+pdp_cat <- pdp::partial(
+  object = xgb_surrogate_model,
+  pred.var = c(feature, "SoilG_1"),
+  train = as.data.frame(ohe_data |> dplyr::select(xgb_surrogate_model$feature_names)),
+  pred.grid = pred_grid
+)
+
+pdp_cat |>
+  ggplot(aes(x = d2, y = yhat, color = as.factor(SoilG_1))) +
+    geom_point(size = 1) +
+  geom_smooth(method = "loess", se = TRUE, size = 0.5) +
+  geom_line() +
+  labs(
+    title = paste("Partial Dependence Plot for", feature),
+    x = feature,
+    y = "Predicted Response"
+  ) +
+  theme_minimal()
+
+
+pdp3 <- lapply(c("d1", "d2", "d3", "Indaar"),
+               pdp_point3)
+
+# --- 5. Shapley Values for Feature Importance only xgb----
+# Load specific packages for SHAP values
+library(shapr)      # For calculating SHAP values
+library(shapviz)    # For visualizing SHAP values
+
+# Calculates SHAP values for the model using the preprocessed training data.
+shap_values_xgb <-
+  shapviz(xgb_surrogate_model,
+          X_pred =data.matrix(ohe_data |>
+                                select(xgb_surrogate_model$feature_names)))
+
+
+# Visualize SHAP values
+sv_importance(shap_values_xgb, show_numbers = TRUE)
+sv_importance(shap_values_xgb, kind = "beeswarm")
+
+sv_dependence(shap_values_xgb, v = setdiff(row.names(rf_surrogate_model$importance),
+                                       categorical_vars), color_var = "SoilG")
+
+
+sv_dependence(shap_values_xgb, v = "d1", color_var = "SoilG_1")
+
+
+sv_interaction(shap_values_xgb, max_display = 20, show_numbers = TRUE)
+
+
 
