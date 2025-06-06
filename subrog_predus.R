@@ -1,3 +1,4 @@
+
 # Load necessary packages
 library(tidyverse)
 library(readxl)
@@ -6,16 +7,16 @@ library(xgboost)
 library(caret)
 
 # 1. Data Loading ----
-sasoutput <- read_excel("Scenarier20190909B4_found0325.xls")|>
-  rename('na' = `NA`)
+predus <- readRDS("pred_NLES5NUAR.RDS")
 
+summary(predus$L)
 
-# Create the density plot for PUdvaskF
-density_plot_PUdvaskF <- ggplot(sasoutput, aes(x = PUdvaskF)) +
+# Create the density plot for L
+density_plot_L <- ggplot(predus, aes(x = L)) +
   geom_density(fill = "#377ea2", color = "#377ea2", alpha = 0.5) + # Using a custom light orange color
   labs(
     #title = "Distribution of Predicted annual Leaching",
-    x = "NLES5 predicted annual leaching (PUdvaskF)",
+    x = "NLES5 predicted annual leaching (L)",
     y = "Density"
   ) +
   theme_minimal() + # Consistent with your previous plots
@@ -24,77 +25,79 @@ density_plot_PUdvaskF <- ggplot(sasoutput, aes(x = PUdvaskF)) +
     #axis.title = element_text(face = "bold"), # Bold axis titles
     panel.grid.major = element_line(colour = "grey90")#, # Lighter grid lines
     #panel.grid.minor = element_blank(colour = "grey90") # Remove minor grid lines
-  )
+  )+
+  scale_x_continuous(breaks = seq(0, 300, 50), limits = c(0,263.65)) # Adjust x-axis breaks
 
-# Print the plot
-print(density_plot_PUdvaskF)
+print(density_plot_L)
 
 # You can save the plot if needed
-ggsave("density_plot_PUdvaskF.png",
-plot = density_plot_PUdvaskF,
-units = "mm",
-width = 150,
-height = 100,
-dpi = 300)
+ggsave("density_plot_L.png",
+       plot = density_plot_L,
+       units = "mm",
+       width = 150,
+       height = 100,
+       dpi = 300)
 
 
-table(sasoutput$SoilG)
+table(predus$SoilG)
 # 1.1. Renaming and grouping ----
 # Is d or p the percolation groups why some are negative?
-hist(sasoutput$d2)
-hist(sasoutput$p2)
-plot(sasoutput$d2, sasoutput$p2)
+hist(predus$d2)
+hist(predus$p2)
+plot(predus$d2, predus$p2)
 
 # 1.3 Select NLES5 inputs (i.e. variables) for analysis ----
 
-sasoutput_fil <- sasoutput |>
+predus_fil <- predus |>
   select(
-    PUdvaskF,    # Predicted values (response for RF/XGBoost)
+    L,    # Predicted values (response for RF/XGBoost)
     NS, na, nlevelMin1, nlevelMin2, NlevelFix0, NlevelFix1, NlevelFix2,
     NlevelGod0, NlevelGod1, NlevelGod2, Nudb, TN, Vafgr_Kappa, # Nitrogen related terms
     Mau, Mfu, Vau, Vfu, # Crop related terms
-    CU,             # Clay content (Soil)
+    CU...71,             # Clay content (Soil)
     Indb_aar,     # Year trend
-    d1,d2, d3, p2,p3,
+    d1,d2, d3,
     SoilG # Percolation/Drainage related terms
   ) |> mutate(SoilG= recode_factor(SoilG, "S"=0, "C"=1)) |>
   mutate(Mau=as.factor(Mau),
          Mfu=as.factor(Mfu),
          Vau=as.factor(Vau),
          Vfu=as.factor(Vfu),
-         SoilG= as.factor(SoilG))
+         SoilG= as.factor(SoilG),
+         ) |> rename(CU = CU...71)
 
 # --- 2. Random Forest Surrogate Model (Optimized for High Fidelity i.e, over fitting) ----
 
 set.seed(151190) # For reproducibility
 
 rf_surrogate_model <- randomForest(
-  PUdvaskF ~ .,
-  data = sasoutput_fil,
+  L ~ .,
+  data = predus_fil,
   ntree = 5000,      # Increase number of trees further (e.g., to 5000)
-  mtry = ncol(sasoutput_fil) - 1, # Set mtry to all predictors (p)
+  mtry = ncol(predus_fil) - 1, # Set mtry to all predictors (p)
   nodesize = 1,      # Allow single-observation terminal nodes
   maxnodes = NULL,   # Let nodesize control tree depth (no explicit max)
-  sampsize = nrow(sasoutput_fil), # Use entire dataset for each tree (pure bagging mode)
+  sampsize = nrow(predus_fil), # Use entire dataset for each tree (pure bagging mode)
   importance = TRUE  # Still useful for initial importance checks
 )
+
 print(rf_surrogate_model)
 
 library(ranger)
 
 rf_ranger_model <- ranger(
-  formula = PUdvaskF ~ .,
-  data = sasoutput_fil,
+  formula = L ~ .,
+  data = predus_fil,
   num.trees = 5000,
-  mtry = ncol(sasoutput_fil) - 1,
+  mtry = ncol(predus_fil) - 1,
   min.node.size = 1,
   sample.fraction = 1, # Use entire dataset for each tree (pure bagging)
   importance = "impurity"
 )
 
 print(rf_ranger_model)
-# Compare the two models
 
+# Compare the two models
 plot(rf_surrogate_model$predicted,rf_ranger_model$predictions)
 
 
@@ -102,8 +105,8 @@ cat("R-squared of High-Fidelity Random Forest on training data:",
     rf_surrogate_model$rsq[length(rf_surrogate_model$rsq)], "\n")
 
 # Evaluate performance on the training data (should be very high)
-rf_predictions_train <- predict(rf_surrogate_model, newdata = sasoutput_fil)
-rf_rmse_train <- sqrt(mean((sasoutput_fil$PUdvaskF - rf_predictions_train)^2))
+rf_predictions_train <- predict(rf_surrogate_model, newdata = predus_fil)
+rf_rmse_train <- sqrt(mean((predus_fil$L - rf_predictions_train)^2))
 cat("RMSE of High-Fidelity Random Forest on training data:", rf_rmse_train, "\n")
 
 # You might want to save this model if it's the one you'll use for Sobol
@@ -115,16 +118,16 @@ saveRDS(rf_surrogate_model, "rf_surrogate_model_max_fidelity.rds")
 ## --- Create a dummy variables for categories ---
 # Create a dummyVars object
 
-dummy_model <- dummyVars(~ ., sep="_",data = sasoutput_fil)
+dummy_model <- dummyVars(~ ., sep="_",data = predus_fil)
 
 # Apply the dummy encoding
-ohe_data <- data.frame(predict(dummy_model, newdata = sasoutput_fil))
+ohe_data <- data.frame(predict(dummy_model, newdata = predus_fil))
 
 set.seed(151190) # For reproducibility
 
 # Prepare data for XGBoost (matrix format)
-X_train <- as.matrix(ohe_data |> select(-PUdvaskF))
-y_train <- ohe_data$PUdvaskF
+X_train <- as.matrix(ohe_data |> select(-L))
+y_train <- ohe_data$L
 
 # Define parameters for high fidelity
 xgb_params_high_fidelity <- list(
@@ -132,7 +135,7 @@ xgb_params_high_fidelity <- list(
   eval_metric = "rmse",         # Root Mean Squared Error
   nrounds = 5000,               # Very high number of boosting rounds
   eta = 0.005,                   # Very small learning rate
-  max_depth = 5,               # Deep trees to capture interactions
+  max_depth = 7,               # Deep trees to capture interactions
   subsample = 0.7,              # Not Use all data for each tree
   colsample_bytree = 0.8,       # Not Use all features for each tree
   min_child_weight = 0.8,         # Allow very small child weights
@@ -153,7 +156,7 @@ xgb_predictions_train <- predict(xgb_surrogate_model, xgb.DMatrix(X_train))
 xgb_rmse_train <- sqrt(mean((y_train - xgb_predictions_train)^2))
 
 cat("RMSE of High-Fidelity XGBoost on training data:", xgb_rmse_train, "\n")
-cat("XGBoost R-squared (Training):", cor(xgb_predictions_train, ohe_data$PUdvaskF), "\n")
+cat("XGBoost R-squared (Training):", cor(xgb_predictions_train, ohe_data$L), "\n")
 
 # You might want to save this model
 saveRDS(xgb_surrogate_model, "xgb_surrogate_model_high_fidelity.rds")
@@ -165,26 +168,26 @@ xgb.save(xgb_surrogate_model, "xgb_surrogate_model_high_fidelity.model")
 # --- Comparison ---
 cat("\n--- Training Performance Comparison ---\n")
 cat("RF R-squared (Training):", rf_surrogate_model$rsq[length(rf_surrogate_model$rsq)], "\n")
-cat("XGBoost R-squared (Training):", cor(xgb_predictions_train, ohe_data$PUdvaskF), "\n")
+cat("XGBoost R-squared (Training):", cor(xgb_predictions_train, ohe_data$L), "\n")
 cat("RF RMSE (Training):", rf_rmse_train, "\n")
 cat("XGBoost RMSE (Training):", xgb_rmse_train, "\n")
 
-plot(xgb_predictions_train, ohe_data$PUdvaskF)
+plot(xgb_predictions_train, ohe_data$L)
 abline(0,1, col="orange3")
-plot(rf_surrogate_model$predicted, ohe_data$PUdvaskF)
-plot(rf_ranger_model$predictions, ohe_data$PUdvaskF)
+plot(rf_surrogate_model$predicted, ohe_data$L)
+plot(rf_ranger_model$predictions, ohe_data$L)
 abline(0,1)
 plot(rf_ranger_model$predictions, xgb_predictions_train)
 
 # Create a data frame for observed values
 df_observed <- data.frame(
-  PUdvaskF = sasoutput_fil$PUdvaskF,
+  L = predus_fil$L,
   Type = "Predicted by NLES5"
 )
 
 # Create a data frame for predicted values
 df_predicted <- data.frame(
-  PUdvaskF = xgb_predictions_train,
+  L = xgb_predictions_train,
   Type = "Predicted by XGBoost"
 )
 
@@ -195,12 +198,12 @@ combined_df <- rbind(df_observed, df_predicted)
 combined_df$Type <- factor(combined_df$Type, levels = c("Predicted by XGBoost", "Predicted by NLES5"))
 
 # 2. Create the combined density plot
-combined_density_plot <- ggplot(combined_df, aes(x = PUdvaskF, fill = Type, color = Type)) +
+combined_density_plot <- ggplot(combined_df, aes(x = L, fill = Type, color = Type)) +
   geom_density(alpha = 0.2, linewidth = 0.3) + # Use linewidth for the outline
   scale_fill_manual(values = c("Predicted by NLES5" = "darkgreen", "Predicted by XGBoost" = "steelblue")) + # Custom fill colors
   scale_color_manual(values = c("Predicted by NLES5" = "darkgreen", "Predicted by XGBoost" = "darkblue")) + # Custom outline colors
   labs(
-    x = "Annual N leaching (PUdvaskF)",
+    x = "Annual N leaching (L)",
     y = "Density",
     fill = "Data Type",
     color = "Data Type"
@@ -217,7 +220,7 @@ combined_density_plot <- ggplot(combined_df, aes(x = PUdvaskF, fill = Type, colo
 
 print(combined_density_plot)
 
-ggsave("density_plot_PUdvaskF.png",
+ggsave("density_plot_L.png",
        plot = combined_density_plot,
        units = "mm",
        width = 150,
@@ -240,10 +243,10 @@ xgb.plot.importance(importance_matrix = importance_matrix, top_n = 55) # Plot to
 
 
 prefixes <- c("Mau", "Mfu", "Vau", "Vfu","SoilG", "d1","d2","d3",
-                   "Indb_aar", "NS", "na", "nlevelMin1", "nlevelMin2",
-                   "NlevelFix0", "NlevelFix1", "NlevelFix2",
-                   "NlevelGod0", "NlevelGod1", "NlevelGod2",
-                   "Nudb", "TN", "CU")
+              "Indb_aar", "NS", "na", "nlevelMin1", "nlevelMin2",
+              "NlevelFix0", "NlevelFix1", "NlevelFix2",
+              "NlevelGod0", "NlevelGod1", "NlevelGod2",
+              "Nudb", "TN", "CU", "Vafgr_Kappa")
 
 
 importance_matrix_processed <- importance_matrix |>
@@ -260,32 +263,33 @@ translate <- c(
   #𝐿 = 𝜏(𝑌 – 1991) + {(𝜇 + 𝜃𝑖𝑁 + 𝐶)𝜅}(𝑃 𝑆)p
 
   # Y
-  "Indb_aar"="Year",
+  "Indb_aar"="Y",
 
   # N
-  "NS"="N Min. Spring",
-  "na"="N Min. Autum",
-  "nlevelMin1"="N Min. prev. year",
-  "nlevelMin2"="N Min. 2nd prev. year",
-  "NlevelFix0"="N Fix.",
-  "NlevelFix1"="N Fix. prev. year",
-  "NlevelFix2"="N Fix. 2nd prev. year",
-  "NlevelGod0"="N Org.",
-  "NlevelGod1"="N Org. prev. year",
-  "NlevelGod2"="N Org. 2nd prev. year",
-  "Nudb"="N grazing",
-  "TN"="Total Soil N",
+  "NS"="MN_CS",
+  "na"="MN_CA",
+  "nlevelMin1"="M1",
+  "nlevelMin2"="M2",
+  "NlevelFix0"="F0",
+  "NlevelFix1"="F1",
+  "NlevelFix2"="F2",
+  "NlevelGod0"="G0",
+  "NlevelGod1"="G1",
+  "NlevelGod2"="G2",
+  "Nudb"="MN_udb",
+  "TN"="NT",
+  "Vafgr_Kappa"="WC",
 
   # C
-  "Mau" = "Main crop",
-  "Mfu" = "Main crop prev. year",
-  "Vau" = "Winter crop",
-  "Vfu" = "Winter crop prev. year",
+  "Mau" = "M",
+  "Mfu" = "MP",
+  "Vau" = "W",
+  "Vfu" = "WP",
 
   #P
-  "d1"="Perc. Apr.to Aug.",
-  "d2"="Perc. Sep.to Mar.",
-  "d3"="Perc. Sep.to Mar. prev. year",
+  "d1"="AAa",
+  "d2"="AAb",
+  "d3"="APb",
   "SoilGS"="Soil group",
   "SoilGC"="Soil group",
   "SoilG"="Soil group",
@@ -310,6 +314,7 @@ asignation <- c(
   "NlevelGod2"="N",
   "Nudb"="N",
   "TN"="N",
+  "Vafgr_Kappa"="N",
 
   # C
   "Mau" = "C",
@@ -321,6 +326,8 @@ asignation <- c(
   "d1"="P",
   "d2"="P",
   "d3"="P",
+  "p2"="P",
+  "p3"="P",
   "SoilGS"="P",
   "SoilGC"="P",
   "SoilG"="P",
@@ -333,7 +340,7 @@ asignation <- c(
 
 importance_rf <- as.data.frame(rf_surrogate_model$importance) |>
   bind_cols('BaseFeature'=row.names(as.data.frame(rf_surrogate_model$importance)),
-             'ranger'=(rf_ranger_model$variable.importance)/sum(rf_ranger_model$variable.importance)*100) |>
+            'ranger'=(rf_ranger_model$variable.importance)/sum(rf_ranger_model$variable.importance)*100) |>
   mutate(Input = recode(BaseFeature, !!!translate)) |>
   mutate(IncMSE_rel = `%IncMSE` / sum(`%IncMSE`) * 100,
          IncNodePurity_rel=IncNodePurity/sum(IncNodePurity) * 100)
@@ -342,15 +349,15 @@ importance_rf <- as.data.frame(rf_surrogate_model$importance) |>
 # Group by the identified crop prefixes and sum their contributions
 contributions <- importance_matrix_processed |>
   mutate(Component = recode(BaseFeature, !!!asignation),
-           Input = recode(BaseFeature, !!!translate))|>
-    group_by(Input, Component) |>
-    summarise(
-      Total_Gain = sum(Gain)*100,
-      Total_Cover = sum(Cover)*100,
-      Total_Frequency = sum(Frequency)*100
-    ) |>
+         Input = recode(BaseFeature, !!!translate))|>
+  group_by(Input, Component) |>
+  summarise(
+    Total_Gain = sum(Gain)*100,
+    Total_Cover = sum(Cover)*100,
+    Total_Frequency = sum(Frequency)*100
+  ) |>
   left_join(importance_rf, by = 'Input') |>
-    arrange(Component) |>
+  arrange(Component) |>
   mutate(Input = factor(Input, levels = unique(Input)),
          Component = factor(Component, levels = c("S","P","C","N","Y")))
 
@@ -366,19 +373,20 @@ fixed_colors <- c(
 # Visualization: Point Plot
 pp_plot <-
   contributions |> pivot_longer(
-  cols = c(
-    #xgb
-    Total_Gain,
-    #Total_Cover,
-    Total_Frequency#,
-    #rf
-    #IncMSE_rel,
-    #ranger,
-    # IncNodePurity_rel
+    cols = c(
+      #xgb
+      Total_Gain,
+      #Total_Cover,
+      Total_Frequency,
+      #rf
+      ##IncMSE_rel,
+      #IncNodePurity_rel,
+      #ranger,
+      # IncNodePurity_rel
     ),
-  names_to = "metric",
-  values_to = "contribution"
-) |>
+    names_to = "metric",
+    values_to = "contribution"
+  ) |>
   arrange(Component)|>
   mutate(metric = factor(metric, levels = c("Total_Gain", "Total_Frequency"))) |>
   ggplot(aes(
@@ -397,7 +405,7 @@ pp_plot <-
     y = Input,
     yend = Input
   )) +
-  #facet_grid(. ~ metric) +
+  facet_grid(. ~ metric) +
   scale_y_discrete(
     labels = function(x)
       gsub("", "", x)
@@ -457,19 +465,20 @@ bar_plot <-
       #xgb
       Total_Gain,
       #Total_Cover,
-      Total_Frequency#,
+      Total_Frequency,
       #rf
-      #IncMSE_rel,
+      IncMSE_rel,
+      IncNodePurity_rel,
       #ranger,
       # IncNodePurity_rel
     ),
     names_to = "metric",
     values_to = "contribution"
   ) |>
-  mutate(metric = factor(metric, levels = c("Total_Gain", "Total_Frequency"))) |>
+  #mutate(metric = factor(metric, levels = c("Total_Gain", "Total_Frequency"))) |>
   ggplot(aes(y = contribution,
-                            x = 1,
-                  group = fct_reorder(Input, -desc(Component)))) +
+             x = 1,
+             group = fct_reorder(Input, -desc(Component)))) +
   geom_bar(
     stat = "identity",
     position = "stack",
@@ -479,7 +488,7 @@ bar_plot <-
   ) +
   geom_text(
     aes(label = ifelse(contribution > 1.5, paste(gsub("", "", Input), ";", round(contribution, 1), " "), paste(""))
-        ),
+    ),
     position = position_stack(vjust = 0.5),
     hjust = 0.5,
     angle = 0,
@@ -499,9 +508,9 @@ bar_plot
 
 
 ptotgain <- contributions |>
-ggplot(aes(y = Total_Gain,
-                 x = 1,
-                 group = fct_reorder(Input, -desc(Component)))) +
+  ggplot(aes(y = Total_Gain,
+             x = 1,
+             group = fct_reorder(Input, -desc(Component)))) +
   geom_bar(
     stat = "identity",
     position = "stack",
@@ -562,8 +571,8 @@ paddedgain <- contributions |>
     percentage = contribution / sum(contribution) * 100
   ) |>
   ggplot(aes(y = percentage,
-                  x = 1,
-                  group = fct_reorder(Input, -desc(Component)))) +
+             x = 1,
+             group = fct_reorder(Input, -desc(Component)))) +
   geom_bar(
     stat = "identity",
     position = "stack",
@@ -589,27 +598,27 @@ paddedgain <- contributions |>
 
 # Combine with custom widths
 gain_plot <-
-paddedgain +
+  paddedgain +
   theme(
     axis.ticks.y = element_blank(),
     legend.position = "none"
   ) +
   ptotgain +
-    theme(axis.ticks.y = element_blank(),
-          axis.text.y = element_blank(),
-          legend.position = "bottom") +
+  theme(axis.ticks.y = element_blank(),
+        axis.text.y = element_blank(),
+        legend.position = "bottom") +
   seggain +
-      theme(axis.ticks.y = element_blank(), legend.position = "none") +
-    plot_layout(
-      ncol = 4,
-      widths = c(0.8,2.1,2)
-    )
+  theme(axis.ticks.y = element_blank(), legend.position = "none") +
+  plot_layout(
+    ncol = 4,
+    widths = c(0.8,2.1,2)
+  )
 
 ggsave("gain_plot.png",
-              gain_plot,
-              units = "mm",
-              width = 183,
-              height = 210)
+       gain_plot,
+       units = "mm",
+       width = 183,
+       height = 210)
 
 
 freq_plot <-
@@ -628,10 +637,10 @@ freq_plot <-
   )
 
 ggsave("freq_plot.png",
-              freq_plot,
-              units = "mm",
-              width = 183,
-              height = 200)
+       freq_plot,
+       units = "mm",
+       width = 183,
+       height = 200)
 
 
 # Ensure necessary packages are loaded
@@ -662,7 +671,8 @@ dumbbell_data_wide <- dumbbell_data_long |>
   select(Input, Component, Total_Gain, Total_Frequency) # Select relevant columns
 
 # 2. Create the Dumbbell Plot
-dumbbell_plot <- ggplot(dumbbell_data_long, aes(y = fct_reorder(Input, -desc(Component)), x = contribution)) +
+dumbbell_plot <- ggplot(dumbbell_data_long, aes(y = reorder(Input, desc(Component)),
+                                                x = contribution)) +
   # First, add the connecting segments
   geom_segment(data = dumbbell_data_wide,
                aes(x = Total_Gain, xend = Total_Frequency, y = Input, yend = Input),
@@ -695,11 +705,11 @@ print(dumbbell_plot)
 
 # You can save the plot if needed
 ggsave("dumbbell_plot_contribution.png",
-plot = dumbbell_plot,
-width = 183,
-units= "mm",
-height = 150,
-dpi = 300)
+       plot = dumbbell_plot,
+       width = 183,
+       units= "mm",
+       height = 150,
+       dpi = 300)
 
 
 # 📈 1. Gain (Most Commonly Used)
@@ -737,43 +747,44 @@ library(pdp)
 #xgb_model <- xgboost(data = as.matrix(X), label = y, nrounds = 100, objective = "reg:squarederror", verbose = 0)
 
 # Create a partial dependence plot for a feature
-pdp_result_xgb <- pdp::partial(
-  object = xgb_surrogate_model,
-  pred.var = 'Indb_aar',
-  train = as.data.frame(ohe_data |> dplyr::select(xgb_surrogate_model$feature_names)),
-  grid.resolution = 100
-)
+# pdp_result_xgb <- pdp::partial(
+#   object = xgb_surrogate_model,
+#   pred.var = 'Indb_aar',
+#   train = as.data.frame(ohe_data |> dplyr::select(xgb_surrogate_model$feature_names)),
+#   grid.resolution = 100
+# )
+#
+# pdp_result_rf <- pdp::partial(
+#   object = rf_surrogate_model,
+#   pred.var = 'Indb_aar',
+#   train = as.data.frame(predus_fil |> dplyr::select(row.names(rf_surrogate_model$importance))),
+#   grid.resolution = 100
+# )
+#
+# # Plot with ggplot2
+# ggplot(pdp_result_xgb, aes(x = Indb_aar, y = yhat)) +
+#   geom_point(color = "steelblue", size = 1) +
+#   geom_line(color = "steelblue", size = .8) +
+#   geom_smooth(method = "loess", se = TRUE, color = "steelblue", size = 0.5) +
+#   labs(
+#     title = "Partial Dependence Plot",
+#     x = "Indb_aar",
+#     y = "Predicted Response"
+#   ) +
+#   theme_minimal()
+#
+# ggplot(pdp_result_rf, aes(x = Indb_aar, y = yhat)) +
+#   geom_point(color = "steelblue", size = 1) +
+#   geom_line(color = "steelblue", size = .8) +
+#   geom_smooth(method = "loess", se = TRUE, color = "steelblue", size = 0.5) +
+#   labs(
+#     title = "Partial Dependence Plot",
+#     x = "Indb_aar",
+#     y = "Predicted Response"
+#   ) +
+#  theme_minimal()
 
-pdp_result_rf <- pdp::partial(
-  object = rf_surrogate_model,
-  pred.var = 'Indb_aar',
-  train = as.data.frame(sasoutput_fil |> dplyr::select(row.names(rf_surrogate_model$importance))),
-  grid.resolution = 100
-)
-
- # Plot with ggplot2
-ggplot(pdp_result_xgb, aes(x = Indb_aar, y = yhat)) +
-  geom_point(color = "steelblue", size = 1) +
-  geom_line(color = "steelblue", size = .8) +
-  geom_smooth(method = "loess", se = TRUE, color = "steelblue", size = 0.5) +
-  labs(
-    title = "Partial Dependence Plot",
-    x = "Indb_aar",
-    y = "Predicted Response"
-  ) +
-  theme_minimal()
-
-ggplot(pdp_result_rf, aes(x = Indb_aar, y = yhat)) +
-  geom_point(color = "steelblue", size = 1) +
-  geom_line(color = "steelblue", size = .8) +
-  geom_smooth(method = "loess", se = TRUE, color = "steelblue", size = 0.5) +
-  labs(
-    title = "Partial Dependence Plot",
-    x = "Indb_aar",
-    y = "Predicted Response"
-  ) +
-  theme_minimal()
-
+categorical_vars <- c("Mau", "Mfu", "Vau", "Vfu", "SoilG_1", "SoilG_2","SoilG" ,"Vafgr_Kappa")
 
 # Function to compute PDP for both models
 compute_pdp <- function(feature) {
@@ -782,7 +793,7 @@ compute_pdp <- function(feature) {
     object = xgb_surrogate_model,
     pred.var = feature,
     train = as.data.frame(ohe_data |> dplyr::select(xgb_surrogate_model$feature_names)),
-    grid.resolution = 50
+    grid.resolution = 20
   ) |> mutate(variable = feature, model = "XGBoost") |>
     rename(covariable = feature) |>
     select(variable, model, yhat,covariable)
@@ -790,8 +801,8 @@ compute_pdp <- function(feature) {
   pdp_result_rf <- pdp::partial(
     object = rf_surrogate_model,
     pred.var = feature,
-    train = as.data.frame(sasoutput_fil |> dplyr::select(row.names(rf_surrogate_model$importance))),
-    grid.resolution = 50
+    train = as.data.frame(predus_fil |> dplyr::select(row.names(rf_surrogate_model$importance))),
+    grid.resolution = 20
   )|> mutate(variable = feature, model = "rf")|>
     rename(covariable = feature) |>
     select(variable, model, yhat,covariable)
@@ -803,19 +814,23 @@ compute_pdp <- function(feature) {
 pdp_cont <- lapply(setdiff(row.names(rf_surrogate_model$importance),
                            categorical_vars),
                    compute_pdp)
-saveRDS(pdp_cont, "pdp_cont.RDS")
+#saveRDS(pdp_cont, "pdp_cont.RDS")
 
-pdp_cont <- readRDS(pdp_cont.RDS)
+#pdp_cont <- readRDS(pdp_cont.RDS)
+
 # Plot all PDPs in a faceted plot
 pdpplot <- do.call(rbind,pdp_cont) |>
-         filter(model=="XGBoost")|>
-  mutate(Component=recode(variable, !!!asignation)) |>
-  ggplot(aes(x = covariable, y = yhat, color=Component)) +
+  filter(model=="XGBoost")|>
+  mutate(Component=recode(variable, !!!asignation),
+         Input=recode(variable,!!!translate)) |>
+  ggplot(aes(x = covariable, y = yhat, color=Component#, linetype = model
+             )) +
   geom_line(size = 0.5) +
   geom_point(size = .5) +
   geom_smooth(method = "loess", se = TRUE, size = 0.8) +
   scale_color_manual(values = fixed_colors)+
-  facet_wrap(~ variable, scales = "free_x", ncol=3) +
+  facet_wrap(~ reorder(Input, Component), ncol = 3, scales = "free_x")+
+  #facet_grid(variable~model , scales = "free") +
   labs(
     x = "Feature Value",
     y = "Predicted Response"
@@ -829,6 +844,9 @@ pdpplot <- do.call(rbind,pdp_cont) |>
     legend.position = "bottom",
     legend.title = element_text(size = 10),
     legend.text = element_text(size = 9))
+
+pdpplot
+
 
 ggsave("pdp.png",
        plot = pdpplot,
@@ -870,7 +888,7 @@ pdp_cat <- pdp::partial(
 
 pdp_cat |>
   ggplot(aes(x = d2, y = yhat, color = as.factor(SoilG_1))) +
-    geom_point(size = 1) +
+  geom_point(size = 1) +
   geom_smooth(method = "loess", se = TRUE, size = 0.5) +
   geom_line() +
   labs(
@@ -901,7 +919,7 @@ sv_importance(shap_values_xgb, show_numbers = TRUE)
 sv_importance(shap_values_xgb, kind = "beeswarm")
 
 sv_dependence(shap_values_xgb, v = setdiff(row.names(rf_surrogate_model$importance),
-                                       categorical_vars), color_var = "SoilG")
+                                           categorical_vars), color_var = "SoilG")
 
 
 sv_dependence(shap_values_xgb, v = "d1", color_var = "SoilG_1")
@@ -911,3 +929,10 @@ sv_interaction(shap_values_xgb, max_display = 20, show_numbers = TRUE)
 
 
 
+cv_results_robust <- sasoutput_fil_NLES5 |>
+  summarise(across(everything(),
+                   # Using abs() on the mean for a more stable calculation
+                   ~ (sd(.x, na.rm = TRUE) / abs(mean(.x, na.rm = TRUE))) * 100
+  ))
+
+print(cv_results_robust)
