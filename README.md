@@ -6,15 +6,14 @@ The analysis identifies the relative contribution of each input variable to the 
 Methodological Workflow and Scripts ⚙️
 The analysis is structured in the following steps, with each script corresponding to a key part of the workflow.
 
-1. Model Implementation in R
+* **1. Model Implementation in R**
+    * The core NLES5 model functions are coded in [`1_fgkNLES5.R`](https://github.com/francagiannini/vca_predAnnualN/blob/main/1_fgkNLES5.R)
 
-The core NLES5 model functions are coded in 1_fgkNLES5.R.
-2. Input Data Management
+* **2. Input Data Management**
+    * The script [`2_run_franNLES5.R`](https://github.com/francagiannini/vca_predAnnualN/blob/main/2_run_franNLES5.R) runs the model for the training data
 
-The script 2_run_franNLES5.R runs the model for the original NLES5 training dataset: Scenarier20190909B4_found0325.xls.
-3. Sobol' Sensitivity Analysis
+* **3. Sobol' Sensitivity Analysis**
+    * The sampling strategy is performed by the [`3_sobol_predus.R`](https://github.com/francagiannini/vca_predAnnualN/blob/main/3_sobol_predus.R) script.
 
-The sampling strategy and calculation of Sobol' indices are performed by the 3_sobol_predus.R script.
-4. Validation via Model Surrogation
-
-The surrogate model creation and validation analysis is contained in 4_surrog_predus.R.
+* **4. Validation via Model Surrogation**
+    * The surrogate models and results is contained in [`4_surrog_predus.R`](https://github.com/francagiannini/vca_predAnnualN/blob/main/4_surrog_predus.R).
