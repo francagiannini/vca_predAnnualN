@@ -5,29 +5,33 @@ nles5 <- function(Y, #Temporal tendency
                   P, # Perc
                   # Psas, # Perc sas code
                   S, # Soil
-                  # EEA, Fdato, EMA, ETS, EPJ, # NUAR coef
+                  # EEA=0, Fdato=1, EMA=0.05, ETS=0.05, EPJ=1/11, # NUAR coef
                   tao = -0.1108,# Parameter for time effect
                   mu = 23.51,# Parameter for base level se =4.3418
                   k = 1.5,# Parameter for scaling C and N
                   rho = 1.085 # Scaling factor accounting for bias transformation this is a problem
 ) {
-  # Calculate the nitrogen value using the N function with provided parameters
+  # Calculate the nitrogen leaching using the N function with provided parameters
   #𝐿 = 𝜏(𝑌 – 1991) + {(𝜇 + 𝜃𝑖𝑁 + 𝐶)^𝜅}(𝑃 𝑆)p
 
   L <-  tao * (Y - 1991) + ((mu + Ntheta + C)^k)*(P * S) * rho
 
-  #L_percSAS <-  tao * (Y - 1991) + ((mu + Ntheta + C)^k)*(Psas * S) * rho
+  # Calculate L using the percolation function as found in SAS code
+  # L_percSAS <-  tao * (Y - 1991) + ((mu + Ntheta + C)^k)*(Psas * S) * rho
+  # Calculate L using tby rho affecting entire expression as in SAS code
+  # Lwr <- (tao * (Y - 1991) + ((mu + Ntheta + C)^k)*(P * S)) * rho
 
-  #Lwr <- (tao * (Y - 1991) + ((mu + Ntheta + C)^k)*(P * S)) * rho
-
-  # Calculate the nitrogen value using the N function with provided parameters
   #𝐿NUAR = (𝜏(𝑌 − 1991) + {(𝜇 + 𝜃𝑖𝑁 + 𝐶)𝜅}(𝑃 𝑆)p)(1 - EEA Fdato - EMA - ETS)(1- EPJ)
-  #L_nuar <- L * (1 - EEA*Fdato - EMA - ETS) * (1 - EPJ)
+  # L_nuar <- L * (1 - EEA*Fdato - EMA - ETS) * (1 - EPJ)
 
-  return(list(L=L, #Lwr,
+  return(list(L=L,
+              #Lwr=Lwr,
               #L_nuar=L_nuar,
-              Ntheta=Ntheta, C=C, P=P, #Psas=Psas,
-               S=S
+              Ntheta=Ntheta,
+              C=C,
+              P=P,
+              #Psas=Psas,
+              S=S#,
               #L_percSAS=L_percSAS
               ))
 
@@ -52,14 +56,14 @@ N_func <- function(
 
   #define param
   beta_t = 0.456793,    # Total N in topsoil (0-25 cm) (ton N)
-  beta_CS = 0.04957,    # Mineral N spring in harvest year
+  beta_CS = 0.049570,    # Mineral N spring in harvest year
   beta_CA = 0.157044,   # Mineral N autumn in harvest year
   beta_udb = 0.038245,  # Mineral N from grazing in harvest year
   beta_m1_M = 0.026499, # Mineral N added to previous/pre-previous crop (M1+M2)
   beta_f0 = 0.016314,   # Nitrogen fixation in harvest year
   beta_f1 = 0.026499,    # Nitrogen fixation in previous/pre-previous crop (F1+F2)
   beta_g0 = 0.014099,   # Organic N spring in harvest year
-  beta_m1_G = 0.0265,   # Organic N added to previous/pre-previous crop (G1+G2)
+  beta_m1_G = 0.026499,   # Organic N added to previous/pre-previous crop (G1+G2)
   theta_2 = 1.205144 # Factor for N in winter crops (WC=2) or not (WC=1), default is 1.205144
 
 ) {
@@ -71,11 +75,11 @@ N_func <- function(
       beta_CS * MNCS +
       beta_CA * MNCA +
       beta_udb * MNudb +
-      beta_m1_M * (M1 + M2) / 2 +
+      beta_m1_M * ((M1 + M2) / 2) +
       beta_f0 * F0 +
-      beta_f1 * (F1 + F2) / 2 +
+      beta_f1 * ((F1 + F2) / 2) +
       beta_g0 * G0 +
-      beta_m1_G * (G1 + G2) / 2
+      beta_m1_G * ((G1 + G2) / 2)
   )
   Ntheta <- ifelse(WC==1,N, N * theta_2)
   return(Ntheta)

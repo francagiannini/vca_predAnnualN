@@ -1,37 +1,42 @@
 # L function NLES5 -----
-nles5 <- function(Y, #Temporal tendency
-                  Ntheta, # Nitrogen
+nles5 <- function(Y,#Temporal tendency
+                  Ntheta,# Nitrogen
                   C, # Crop
-                  P, # Perc
-                  Psas, # Perc sas code
+                  P,# Perc
+                  Psas,# Perc sas code
                   S, # Soil
                   # EEA, Fdato, EMA, ETS, EPJ, # NUAR coef
-                  tao = -0.1108,# Parameter for time effect
+                  tao = -0.1108, # Parameter for time effect
                   mu = 23.51,# Parameter for base level se =4.3418
                   k = 1.5,# Parameter for scaling C and N
                   rho = 1.085 # Scaling factor accounting for bias transformation this is a problem
-) {
-  # Calculate the nitrogen value using the N function with provided parameters
-  #𝐿 = 𝜏(𝑌 – 1991) + {(𝜇 + 𝜃𝑖𝑁 + 𝐶)^𝜅}(𝑃 𝑆)p
+                  ) {
+                  # Calculate the nitrogen value using the N function with provided parameters
+                  #𝐿 = 𝜏(𝑌 – 1991) + {(𝜇 + 𝜃𝑖𝑁 + 𝐶)^𝜅}(𝑃 𝑆)p
 
-  L <-  tao * (Y - 1991) + ((mu + Ntheta + C)^k)*(P * S) * rho
+                  L <-  tao * (Y - 1991) + ((mu + Ntheta + C)^k) * (P * S) * rho
 
-  L_percSAS <-  tao * (Y - 1991) + ((mu + Ntheta + C)^k)*(Psas * S) * rho
+                  L_percSAS <-  tao * (Y - 1991) + ((mu + Ntheta + C)^k) * (Psas * S) * rho
 
-  #Lwr <- (tao * (Y - 1991) + ((mu + Ntheta + C)^k)*(P * S)) * rho
+                  #Lwr <- (tao * (Y - 1991) + ((mu + Ntheta + C)^k)*(P * S)) * rho #this is how it is in SAS
 
-  # Calculate the nitrogen value using the N function with provided parameters
-  #𝐿NUAR = (𝜏(𝑌 − 1991) + {(𝜇 + 𝜃𝑖𝑁 + 𝐶)𝜅}(𝑃 𝑆)p)(1 - EEA Fdato - EMA - ETS)(1- EPJ)
-  #L_nuar <- L * (1 - EEA*Fdato - EMA - ETS) * (1 - EPJ)
+                  # Calculate the nitrogen value using the N function with provided parameters
+                  #𝐿NUAR = (𝜏(𝑌 − 1991) + {(𝜇 + 𝜃𝑖𝑁 + 𝐶)𝜅}(𝑃 𝑆)p)(1 - EEA Fdato - EMA - ETS)(1- EPJ)
+                  #L_nuar <- L * (1 - EEA*Fdato - EMA - ETS) * (1 - EPJ)
 
-  return(list(L=L, #Lwr,
-              #L_nuar=L_nuar,
-              Ntheta=Ntheta, C=C, P=P, Psas=Psas,
-              S=S,
-              L_percSAS=L_percSAS
-  ))
+                  return(list(
+                    L = L,
+                    #Lwr,
+                    #L_nuar=L_nuar,
+                    Ntheta = Ntheta,
+                    C = C,
+                    P = P,
+                    Psas = Psas,
+                    S = S,
+                    L_percSAS = L_percSAS
+                  ))
 
-}
+                  }
 
 # N component ----
 # 1.1 Define the Nitrogen Model Function
@@ -211,9 +216,136 @@ Psas_func <- function(jbnr,
   return(Psas)
 }
 
-# Exploring the impact of each effect ----
-sasoutput_fil_NLES5$p2 <- sasoutput$p2
-sasoutput_fil_NLES5$p3 <- sasoutput$p3
+# Some translation vectors to match documentation -----
+
+# Invert the vector
+translate <- c(
+  #𝐿 = 𝜏(𝑌 – 1991) + {(𝜇 + 𝜃𝑖𝑁 + 𝐶)𝜅}(𝑃 𝑆)p
+
+  # Y
+  "Indb_aar"="Y",
+
+  # N
+  "NS"="MN_CS",
+  "na"="MN_CA",
+  "nlevelMin1"="M1",
+  "nlevelMin2"="M2",
+  "NlevelFix0"="F0",
+  "NlevelFix1"="F1",
+  "NlevelFix2"="F2",
+  "NlevelGod0"="G0",
+  "NlevelGod1"="G1",
+  "NlevelGod2"="G2",
+  "Nudb"="MN_udb",
+  "TN"="NT",
+  "Vafgr_Kappa"="WC",
+
+  # C
+  "Mau" = "M",
+  "Mfu" = "MP",
+  "Vau" = "W",
+  "Vfu" = "WP",
+
+  #P
+  "d1"="AAa",
+  "d2"="AAb",
+  "d3"="APb",
+  "SoilGS"="Soil group",
+  "SoilGC"="Soil group",
+  "SoilG"="Soil group",
+
+  #S
+  "CU"="Clay")
+
+asignation <- c(
+  # Y
+  "Indb_aar"="Y",
+
+  # N
+  "NS"="N",
+  "na"="N",
+  "nlevelMin1"="N",
+  "nlevelMin2"="N",
+  "NlevelFix0"="N",
+  "NlevelFix1"="N",
+  "NlevelFix2"="N",
+  "NlevelGod0"="N",
+  "NlevelGod1"="N",
+  "NlevelGod2"="N",
+  "Nudb"="N",
+  "TN"="N",
+  "Vafgr_Kappa"="N",
+
+  # C
+  "Mau" = "C",
+  "Mfu" = "C",
+  "Vau" = "C",
+  "Vfu" = "C",
+
+  #P
+  "d1"="P",
+  "d2"="P",
+  "d3"="P",
+  "p2"="P",
+  "p3"="P",
+  "SoilGS"="P",
+  "SoilGC"="P",
+  "SoilG"="P",
+
+  #S
+  "CU"="S"
+)
+
+translate_inverse <- c(
+  "Y" = "Indb_aar",
+  "MNCS" = "NS",
+  "MNCA" = "na",
+  "M1" = "nlevelMin1",
+  "M2" = "nlevelMin2",
+  "F0" = "NlevelFix0",
+  "F1" = "NlevelFix1",
+  "F2" = "NlevelFix2",
+  "G0" = "NlevelGod0",
+  "G1" = "NlevelGod1",
+  "G2" = "NlevelGod2",
+  "MNudb" = "Nudb",
+  "NT" = "TN",
+  "WC" = "Vafgr_Kappa",
+  "M" = "Mau",
+  "MP" = "Mfu",
+  "W" = "Vau",
+  "WP" = "Vfu",
+  "AAa" = "d1",
+  "AAb" = "d2",
+  "APb" = "d3",
+  "jbnr" = "SoilG",
+  "Clay" = "CU"
+)
+
+
+
+
+# Exploring the impact of each input ----
+sasoutput <- read_excel("Scenarier20190909B4_found0325.xls")|>
+  rename('na' = `NA`)
+
+sasoutput_fil_NLES5 <- sasoutput |>
+  select(
+    PUdvaskF,    # Predicted values (response for RF/XGBoost)
+    NS, na, nlevelMin1, nlevelMin2, NlevelFix0, NlevelFix1, NlevelFix2,
+    NlevelGod0, NlevelGod1, NlevelGod2, Nudb, TN, Vafgr_Kappa, # Nitrogen related terms
+    Mau, Mfu, Vau, Vfu, # Crop related terms
+    CU,             # Clay content (Soil)
+    Indb_aar,     # Year trend
+    d1,d2, d3, p2,p3,
+    SoilG # Percolation/Drainage related terms
+  ) |> mutate(SoilG= recode_factor(SoilG, "S"=0, "C"=1)) |>
+  mutate(Mau=as.factor(Mau),
+         Mfu=as.factor(Mfu),
+         Vau=as.factor(Vau),
+         Vfu=as.factor(Vfu),
+         SoilG= as.factor(SoilG))
+
 
 head(sasoutput_fil_NLES5)
 
@@ -222,7 +354,6 @@ get_mode <- function(v) {
   uniqv <- unique(v)
   uniqv[which.max(tabulate(match(v, uniqv)))]
 }
-
 
 
 # --- Calculate mean/mode for all input columns to be used as fixed values ---
@@ -467,38 +598,3 @@ p <- plot_data |> filter(Component %in% c(N, P)) |>
   guides(color = guide_legend(ncol = 1))
 # Print the plot
 print(p)
-
-plot_data_comp <- final_results_df %>%
-  pivot_longer(
-    cols = c(Ntheta, C, P, S, Psas), # Columns representing the outputs/components
-    names_to = "term",               # New column for the name of the output/component
-    values_to = "predicted_value"                # New column for the predicted value
-  )
-
-
-p2 <- ggplot(plot_data_comp, aes(x = original_value, y = predicted_value,
-                           colour = varied_variable,
-                           group = varied_variable)) +
-  geom_point() + # Scatter points with some transparency
-  # Add a LOESS smooth line to visualize trends. 'se = FALSE' removes standard error shading.
-  #geom_smooth(method = "loess", se = FALSE, linetype = "dashed") +
-  geom_line()+
-  labs(
-    x = "Original Input Variable Value (others Fixed at Mean/Mode)",
-    y = "Predicted Output Value"
-  ) +
-  # Create a grid of plots, one for each combination of varied input and output component.
-  # 'scales = "free_x"' allows x-axis limits to vary per facet, crucial for different input ranges.
-  # 'ncol' can be adjusted to control the number of columns in the plot grid.
-  facet_grid(term~ Component, scales = "free") +
-  scale_color_manual(values = fixed_color_variable_inverse)+
-  theme_minimal() + # Use a minimal theme for a clean look
-  theme(
-    strip.text = element_text(size = 8), # Adjust font size for facet labels
-    axis.text.x = element_text(angle = 45, hjust = 1, size = 6), # Rotate and resize x-axis labels for readability
-    axis.text.y = element_text(size = 7), # Resize y-axis labels
-    plot.title = element_text(hjust = 0.5, face = "bold") # Center and bold the main title
-  )+
-  guides(color = guide_legend(ncol = 1))
-# Print the plot
-print(p2)

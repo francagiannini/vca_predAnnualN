@@ -170,7 +170,7 @@ dim(X1_data)==dim(X2_data)
 
 # --- 3. Perform Sobol' Sensitivity Analysis using 'soboljansen' ----
 
-sobol_results_nles5_model <- soboljansen(
+sobol_results_nles5_model <- sensitivity::soboljansen(
   model = calculate_NLES5_for_sobol, #  wrapper function for NLES5
   X1 = X1_data[complete.cases(X1_data),],                      # First set of input samples
   X2 = X2_data,                      # Second set of input samples
@@ -189,8 +189,6 @@ print(sobol_results_nles5_model$T)
 # appropriate if  inputs were purely continuous and defined by ranges.
 
 # 4. Visualization of Sobol' Indices and Uncertainty for NLES5 ----
-
-
 # Extract first-order indices
 first_order_indices_nles5 <- data.frame(
     Variable = rownames(sobol_results_nles5_model$S),
@@ -234,11 +232,18 @@ translate_inverse <- c(
   "AAa" = "d1",
   "AAb" = "d2",
   "APb" = "d3",
-  "jbnr" = "SoilG",   # Third instance for "Soil group"
+  "jbnr" = "SoilG",
   "Clay" = "CU"
 )
 
-
+# Define color palette components.
+fixed_colors <- c(
+  "S" = "#e45a3d",
+  "N" = "#377eb8",
+  "C" = "#3AA600",
+  "Y" = "#FFAE00",
+  "P" = "#985aa1"
+)
 
 # Reshape data for ggplot2 and add descriptive labels for plotting
 plot_sobol_data_nles5 <- sobol_df_nles5 |>
@@ -248,8 +253,9 @@ plot_sobol_data_nles5 <- sobol_df_nles5 |>
     Conf_High = ifelse(Index_Type == "S1", S1_conf_high, ST_conf_high),
     # Use the 'translate' vector to get readable labels for the input parameters
     Input = recode(Variable, !!!translate_inverse)) |>
-    mutate(Component = recode(Input, !!!asignation)) |>
-  arrange(desc(Component))
+    mutate(Component = recode(Input, !!!asignation),
+           Variable = factor(Variable, levels = ordered_input_levels)) |>
+  mutate(Component = factor(Component, levels = c("Y", "N", "C", "P", "S")))
 
 # --- Create the Sobol' Indices Plot ---
 sobolplotNLES5 <-
@@ -274,27 +280,12 @@ sobolplotNLES5 <-
 
 sobolplotNLES5
 
-
-plot_sobol_data_nles5_ordered <- plot_sobol_data_nles5 %>%
-  left_join(
-    plot_sobol_data_nles5 %>%
-      filter(Index_Type == "ST") %>%
-      select(Variable, ST_Value_for_sort = Value) %>%
-      distinct(), # Ensures one ST value per Variable for sorting
-    by = "Variable"
-  ) %>%
-  # If an Variable somehow doesn't have an ST value, assign -Inf to sort it at the bottom
-  mutate(ST_Value_for_sort = if_else(is.na(ST_Value_for_sort), -Inf, ST_Value_for_sort)) %>%
-  # Arrange by Component, then by ST value (descending), then by Variable name as a final tie-breaker
-  arrange(Component, desc(ST_Value_for_sort), Variable) %>%
-  # Create the 'Variable' factor with levels in the new desired order
-  mutate(Variable = factor(Variable, levels = unique(.$Variable)))
-
+### Figure 5 ----
 sobolplotNLES5_vertical_ordered <-
-  ggplot(plot_sobol_data_nles5_ordered, # Use the new ordered data
+  ggplot(plot_sobol_data_nles5,
          aes(
-           x = Variable, # 'Input' is now an ordered factor
-           y = Value,#ifelse(Value>0,Value,0),
+           x =reorder( Variable,desc(Variable)),
+           y = Value, #ifelse(Value>0,Value,0),
            fill = Component,
            alpha = Index_Type
          )) +
@@ -311,35 +302,31 @@ sobolplotNLES5_vertical_ordered <-
     color = "gray60",
     linewidth = 0.5
   ) +
-  scale_fill_manual(values = fixed_colors) + # Your custom colors
+  scale_fill_manual(values = fixed_colors) +
   scale_alpha_manual(
     values = c("S1" = 0.25, "ST" = 1.0),
     name = "Sobol' Index",
     labels = c("S1 (First-order)", "ST (Total-order)")
   ) +
-  coord_flip() + # This makes the plot vertical!
+  coord_flip() + # makes the plot vertical!
   labs(
     title = "Sensitivity estimates",
-    x = "Input parameter", # This label will now appear on the Y-axis
-    y = "Index Value", # This label will now appear on the X-axis
+    x = "Input parameter",
+    y = "Index Value",
     fill = "Component"
   ) +
   theme_minimal(base_size = 10) +
   theme(
-    axis.text.y = element_text(size = rel(0.9)), # Was axis.text.x, now for Input labels
-    axis.text.x = element_text(size = rel(0.9)), # Was axis.text.y, now for Value labels
-    # No angle needed for axis.text.y (Input labels) if they fit well
-    # If Input labels are long, you might adjust their properties or plot margins
-    axis.title.y = element_text(size = rel(1.0), margin = margin(r = 10)), # Was axis.title.x
-    axis.title.x = element_text(size = rel(1.0), margin = margin(t = 10)), # Was axis.title.y
+    axis.text.y = element_text(size = rel(0.9)),
+    axis.text.x = element_text(size = rel(0.9)),
+    axis.title.y = element_text(size = rel(1.0), margin = margin(r = 10)),
+    axis.title.x = element_text(size = rel(1.0), margin = margin(t = 10)),
     plot.title = element_text(
       size = rel(1.2),
       hjust = 0.5,
       face = "bold"
     ),
     legend.position = "right",
-    legend.title = element_text(size = rel(1.0), face = "bold"),
-    legend.text = element_text(size = rel(0.9)),
     panel.grid.major.y = element_blank(), # Removes horizontal grid lines (along parameters)
     panel.grid.major.x = element_line(color = "gray90"), # Keeps vertical grid lines (along values)
     panel.grid.minor = element_blank()
@@ -350,9 +337,7 @@ sobolplotNLES5_vertical_ordered <-
 
  ggsave("sobolplotNLES5_vertical_ordered.png",
         sobolplotNLES5_vertical_ordered,
-        width = 183, height = 240, units = "mm", dpi = 300)
- #
-
+        width = 180, height = 220, units = "mm", dpi = 300)
 #
 #  sobolplotNLES5_vertical_ordere_point <-
 #    ggplot(plot_sobol_data_nles5_ordered, # Use the new ordered data
@@ -414,38 +399,47 @@ sobolplotNLES5_vertical_ordered <-
 #
 #  print(sobolplotNLES5_vertical_ordere_point)
 #
-#
-# # --- Create the Uncertainty Plot (Histogram of Model Output) ---
-# # This shows the distribution of the NLES5 model's output (L_nuar).
-# uncplotNLES5 <-
-#   ggplot(data.frame(y = sobol_results_nles5_model$y), aes(x = y)) +
-#   geom_histogram(binwidth = diff(range(sobol_results_nles5_model$y, na.rm = TRUE))/30, # Dynamic binwidth
-#                  fill = "darkseagreen", color = "white", alpha = 0.8) +
-#   labs(title = "Uncertainty Estimates for NLES5 Output",
-#        x = "NLES5 Output(L)",
-#        y = "Absolute Frequency") +
-#   theme_minimal() +
-#   theme(plot.title = element_text(size = 12, hjust = 0.5),
-#         axis.title = element_text(size = 10),
-#         axis.text = element_text(size = 9))
-#
-# # --- Combine Plots using 'patchwork' ---
-# combined_nles5_plots <- uncplotNLES5 + sobolplotNLES5 +
-#   plot_layout(ncol = 1, widths = c(0.5, 1.5)) # Adjust layout for better presentation
-#
-# print(combined_nles5_plots)
-#
-# # Save the combined plot to a file
-# ggsave("NLES5_Sensitivity_Uncertainty.png", combined_nles5_plots,
-#        width = 250, height = 150, units = "mm", dpi = 300)
-#
-#   ## 5. Comparison of Sampled vs. Original Input Distributions ----
+#   ## 5.0 Comparison of Sampled vs. Original Output Distributions ----
+# --- Create the Uncertainty Plot (Histogram of Model Output) ---
+### Figure 1 This shows the distribution of the NLES5 model's output (L) ----
+predus <- readRDS("pred_NLES5NUAR.RDS")
+uncplotNLES5 <-
+  data.frame(L = sobol_results_nles5_model$y, Source= "Sampled") |>
+  bind_rows(
+    data.frame(L = predus$L, Source = "Trainig")
+  ) |> filter(L >= 0) |> # Filter out negative values if any
+  ggplot(aes(x = L,linetype = Source)) +
+  geom_density(fill = "#377ea2", color = "#377ea5", alpha = 0.2) +
+  labs(#title = "Uncertainty Estimates for NLES5 Output",
+       x = "NLES5 predicted annual leaching (L: kg N/ha)",
+       y = "Density") +
+  scale_linetype_manual(
+    name = "Data source",    # Legend title for linetype
+    values = c("Trainig" = "solid", "Sampled" = "dashed"),
+    labels = c("Trainig", "Sampled")
+  )+
+  theme_minimal() +
+  theme(#plot.title = element_text(size = 12, hjust = 0.5),
+        axis.title = element_text(size = 10),
+        axis.text = element_text(size = 9))
+uncplotNLES5
+
+ggsave("density_plot_L.png",
+       plot = uncplotNLES5,
+       units = "mm",
+       width = 150,
+       height = 150/2,
+       dpi = 300)
+
+
+#   ## 5.2 Comparison of Sampled vs. Original Input Distributions ----
 #
 #   # This section helps you visualize if the sampling process for sensitivity analysis
 #   # (from  'sasoutput' data) accurately represents the original distributions.
 #
-#   # --- 1. Prepare Sampled Data (from X1_data) in Long Format ---
-sampled_data_long_nles5 <- X1_data |>
+#   # --- Prepare Sampled Data (from X1_data) in Long Format ---
+sampled_data_long_nles5 <-
+  X1_data |>
   pivot_longer(
     cols = everything(), # Selects all input parameter columns
     names_to = "Parameter", # Column for parameter names
@@ -453,7 +447,8 @@ sampled_data_long_nles5 <- X1_data |>
   ) |>
   mutate(Source = "Sampled") # Label this dataset
 
-# --- 2. Prepare Original Data (from sasoutput_fil_NLES5) in Long Format ---
+# --- Prepare Original Data (from sasoutput_fil_NLES5) in Long Format ---
+
 original_data_long_nles5 <- sasoutput_fil_NLES5 |>
   select(all_of(input_names_nles5)) |> # Select only the relevant input columns
   pivot_longer(
@@ -462,145 +457,210 @@ original_data_long_nles5 <- sasoutput_fil_NLES5 |>
     values_to = "Value"
   ) |>
   na.omit() |> # Remove any NA values from original data for fair comparison
-  mutate(Source = "Observed") # Label this dataset
+  mutate(Source = "Training") # Label this dataset
 
-# --- 3. Combine both data frames into a single data frame ---
-combined_plot_data_nles5 <- bind_rows(sampled_data_long_nles5, original_data_long_nles5)
+# --- Combine both data frames into a single data frame ---
+ordered_input_levels <- c(
+   # Y components (from your previous 'Y' group Indb_aar)
+  "Y",
+  # N components (from your previous 'N' group NS, na, nlevel*, Nlevel*, Nudb, TN, Vafgr_Kappa)
+  "MNCS","MNudb", "MNCA", "M1", "M2", "F0", "F1", "F2", "G0", "G1", "G2","NT","WC",
+  # C components (from your previous 'C' group Mau, Mfu, Vau, Vfu)
+  "M", "MP", "W", "WP",
+  # P components (from your previous 'P' group d1, d2, d3, p2, p3, SoilGS, SoilGC, SoilG)
+  "AAa", "AAb", "APb",#"p2","p3", #for percolation s in sas
+  "jbnr", # Corresponds to SoilG
+  # S components (from your previous 'S' group CU)
+  "CU", "Clay"
+
+)
+
+combined_plot_data_nles5 <-
+  bind_rows(sampled_data_long_nles5, original_data_long_nles5) |>
+  mutate(
+    Parameter = factor(Parameter, levels = ordered_input_levels), # Ensure consistent order
+    Source = factor(Source, levels = c("Training", "Sampled")) # Ensure Source is ordered
+  )
 
 # --- 4. Create the Faceted Density Plot ---
 # This plot shows the density distribution for each input parameter,
-# comparing the sampled data (used for GSA) against  original dataset.
+### Figure 3 comparing the sampled data (used for GSA) against  original dataset.----
 dist_samplvs_orig_nles5_cont <-
   combined_plot_data_nles5 |>
   filter(!Parameter %in% c("M", "MP", "W", "WP", "WC", "jbnr","Y")) |>
   mutate(Component = recode(recode(Parameter, !!!translate_inverse), !!!asignation)) |>
   arrange(Value) |>
   ggplot(aes(x = Value, linetype = Source, fill = Component, colour = Component)) +
-  geom_density(alpha = 0.2, linewidth = 0.8) + # 'colour' and 'linetype' apply to the line, 'fill' to the area
+  geom_density(alpha = 0.2, linewidth = 0.8) +
   facet_wrap(~ Parameter , scales = "free", ncol = 4) +
   labs(
-    x = "Input Value",
+    x = "Continous input value",
     y = "Density",
-    title = "Continous inputs" # Added a main title example
+    #title = "Continous inputs" # Added a main title example
   ) +
-  # Use the 'name' argument in scales for legend titles
   scale_fill_manual(
-    name = "Component Group", # Legend title for fill
+    name = "Component", # Legend title for fill
     values = fixed_colors
   ) +
   scale_colour_manual(
-    name = "Component Group", # Identical name to merge with fill legend
+    name = "Component", # Identical name to merge with fill legend
     values = fixed_colors
   ) +
   scale_linetype_manual(
-    name = "Source",    # Legend title for linetype
-    values = c("Observed" = "solid", "Sampled" = "dashed"), # Example linetypes
-    labels = c("Observed", "Sampled") # Optional: Shorter labels for the legend
+    name = "Data source",
+    values = c("Training" = "solid", "Sampled" = "dashed"),
+    labels = c("Training", "Sampled")
   ) +
   theme_light() +
   theme(
     panel.grid.minor = element_blank(),
-    plot.title = element_text(size = 14, hjust = 0.5, face = "bold"), # Adjusted title size
-    strip.text = element_text(size = 9, face = "bold"), # Made strip text a bit larger and bold
+    strip.text = element_text(size = 9, face = "bold"),
     axis.title = element_text(size = 11),
-    axis.text = element_text(size = 9),
-    legend.position = "right",
-    legend.box = "vertical", # Arranges multiple legends vertically
-    legend.title = element_text(size = 10, face = "bold"),
-    legend.text = element_text(size = 9)
+    axis.text = element_text(size = 8),
+    legend.position = "bottom",
+    legend.box = "vertical",
+    legend.text = element_text(size = 8)
   )
 
 print(dist_samplvs_orig_nles5_cont)
 
+ggsave("NLES5_dist_input_cont.png",
+       dist_samplvs_orig_nles5_cont,
+       units = "mm",
+       width = 183,
+       height = 200,
+       dpi = 300)
+
+## --- 5.1 Create the Categorical Inputs Plot ----
+
+recode_map <- c(
+  # Main crop
+  "M-1" = "Winter cereal",
+  "M-2" = "Spring cereal",
+  "M-3" = "Grain-legume mixtures",
+  "M-4" = "Grass or grass-clover",
+  "M-5" = "Grass for seed",
+  "M-6" = "Set-aside",
+  "M-8" = "Sugar beet, fodder beet",
+  "M-9" = "Silage maize and potato",
+  "M-10" = "Winter oilseed rape",
+  "M-11" = "Winter cereal after grass",
+  "M-12" = "Maize after grass",
+  "M-13" = "Spring cereal after grass",
+  "M-14" = "Grain legumes and spring oilseed rape",
+
+  # Main previous crop
+  "MP-1" = "Winter cereal",
+  "MP-2" = "Other crops than winter cereals and grasses",
+  "MP-3" = "Grass or grass-clover",
+  "MP-4" = "Spring or winter crops after grasses",
+  "MP-12" = "Other crops than winter cereals and grasses",
+
+  # Winter vegetation cover
+  "W-1" = "Winter cereal",
+  "W-2" = "Bare soil",
+  "W-3" = "Autumn cultivation",
+  "W-4" = "Cover crops, undersown grass and set-aside",
+  "W-5" = "Weeds and volunteers",
+  "W-6" = "Grass and grass-clover",
+  "W-8" = "Winter cereal after grass",
+  "W-9" = "Grass ploughed late autumn or winter",
+
+  # Winter previous crop
+  "WP-1" = "Winter cereal",
+  "WP-2" = "Bare soil",
+  "WP-3" = "Grass-clover",
+  "WP-4" = "Cover crops",
+  "WP-5" = "Grass for seed and set aside",
+  "WP-6" = "Beets and hemp",
+  "WP-7" = "Bare soil after maize or potatoes",
+  "WP-8" = "Winter oilseed rape",
+  "WP-9" = "Bare soil or winter cereal following grass-clover ploughed in spring",
+  "WP-10" = "Bare soil or winter cereal following grass-clover ploughed in autumn",
+
+  # Winter cover
+  "WC-1" = "Grass-clover, grass, beets and winter oilseed rape",
+  "WC-2" = "Other, including bare soil and cover crops"
+
+)
+### Figure 2 shows the distribution of categorical inputs used in the NLES5 model.----
 data_for_plot_cat <- combined_plot_data_nles5 |>
   filter(Parameter %in% c("M", "MP", "W", "WP", "WC", "jbnr")) |>
   mutate(
-    Value = as.factor(Value), # Treat 'Value' as a factor for categorical plotting
-    Component_temp = recode(recode(Parameter, !!!translate_inverse), !!!asignation) # Temp component for ordering
+    temp_key = paste0(Parameter, "-", as.character(Value)),
+    Value = recode(temp_key, !!!recode_map, .default = as.character(Value)),
+    Value = as.factor(Value), # Convert back to factor
+    Component = recode(recode(Parameter, !!!translate_inverse), !!!asignation)
   ) |>
-  # Calculate N for each Parameter-Source-Value combination
-  count(Parameter, Component_temp, Source, Value, name = "N") |>
-  # Calculate total N for each Parameter-Source (for proportions)
-  group_by(Parameter, Component_temp, Source) |>
+  count(Parameter, Component, Source, Value, name = "N") |>
+  group_by(Parameter, Component, Source) |>
   mutate(Proportion = N / sum(N)) |>
   ungroup() |>
-  # Create the interaction term for x-axis labels. Using \n for a line break if possible.
-  mutate(
-    x_axis_label = interaction(Source, Value,  sep = "-", drop = TRUE),
-    Component = Component_temp # Final component column
-  ) |>
-  # Order data for consistent factor levels if Parameter is made a factor for faceting
   arrange(Component, Parameter, Source, Value) |>
-  # Ensure Parameter is a factor with levels in the arranged order for facet_wrap
-  mutate(Parameter = factor(Parameter, levels = unique(Parameter)))
+  mutate(Parameter = factor(Parameter, levels = unique(Parameter)),
+         facet_col = case_when(
+    Parameter %in% c("WC", "jbnr") ~ "Col2",
+    TRUE ~ "Col1"
+  ))
 
 dist_samplvs_orig_nles5_cat <-
   data_for_plot_cat |>
   ggplot(aes(
-    x = x_axis_label,         # Use the pre-created interaction term for x-axis
-    y = Proportion,           # Use the calculated Proportion
-    fill = Component,
-    colour = Component,       # For bar outline
-    #linetype = Source         # For bar outline style
-    ,alpha=Source
+    x = Value,
+    y = Proportion,
+    linetype = Source,
+    fill= Component,
+    alpha = Source,
+    colour = Component
   )) +
-  geom_col(linewidth = 0.5) + # Using geom_col. Adjusted alpha for better visibility.
-  # linewidth for the border.
-  facet_wrap(~ Parameter, scales = "free_x", ncol = 2) + # Use "free_x" as category names/counts differ
+  geom_col(
+    position = position_dodge(width = 0.5),
+    linewidth = 0.5
+  ) +
+  facet_grid(Parameter~., scales = "free",space = "free") +
   scale_y_continuous(
-    name = "Relative Frequency ",
-    labels = scales::percent_format(accuracy = 1) # Format y-axis as percentage
+    name = " ",
+    labels = scales::percent_format(accuracy = 1)
   ) +
-  labs(
-    x = " ", # Updated x-axis label
-    title = "Categorical inputs" # Example title
-    # Legend titles are best set in their respective scales below
+  labs( x ="Categorical inputs",
   ) +
-  scale_fill_manual(name = "Component Group", values = fixed_colors) +
-  scale_colour_manual(name = "Component Group", values = fixed_colors) + # For bar outlines
-
+  # Now, scale_fill_manual is for Source (Training/Sampled)
+  scale_linetype(guide="none") +
+  scale_fill_manual(name = "Component", values = fixed_colors) +
+  scale_alpha_manual(name = "Data source", values = c(0.2,0.7)) +
+  scale_colour_manual( values = fixed_colors, guide="none") + # Hide this legend
   theme_light() +
   theme(
     panel.grid.minor = element_blank(),
-    panel.grid.major.x = element_blank(), # Often good to remove vertical grid lines for categorical plots
-    plot.title = element_text(size = 14, hjust = 0.5, face = "bold"),
-    strip.text = element_text(size = 9, face = "bold"), # Facet labels
+    panel.grid.major.x = element_blank(),
+    strip.text = element_text(size = 9, face = "bold"),
     axis.title = element_text(size = 11),
-    axis.text.x = element_text(angle = 55, hjust = 1, vjust = 1, size = 7), # ROTATED X-AXIS LABELS & smaller
+    axis.text.x = element_text(size = 9), # Keep vertical labels
     axis.text.y = element_text(size = 9),
-    legend.position = "right", # No legend for this plot
-  )
+    legend.position = "right"
+  )+
+  coord_flip()
 
 print(dist_samplvs_orig_nles5_cat)
 
-
-combined_plots_layout <- dist_samplvs_orig_nles5_cat +
-  dist_samplvs_orig_nles5_cont +
-  plot_layout(
-    guides = 'collect', # Collects common legends
-    heights = c(1, 3)    # Example: give equal height; adjust as needed
-    # You can also use ncol=1 for a single column layout if preferred
-  )
-
-
 # Save the distribution comparison plot
-ggsave("NLES5_dist_samplvs_orig.png",
-       dist_samplvs_orig_nles5_cont,
+ggsave("NLES5_dist_input_cat.png",
+       dist_samplvs_orig_nles5_cat,
        units = "mm",
        width = 183, # Adjusted width for more facets
-       height = 250, # Adjusted height
+       height = 300, # Adjusted height
        dpi = 300)
 
 
-## 6. Correlation Analysis of Sampled Input Parameters
+##  Figure 4 Correlation Analysis of Sampled Input Parameters ----
 
   # Understanding the correlations between  input parameters is crucial,
   # as strong correlations can affect the interpretation of Sobol' indices.
 
-  # 1. Calculate the Pearson correlation matrix for the sampled input data (X1_data)
+  # Calculate the Pearson correlation matrix for the sampled input data (X1_data)
 corr_sampled_matrix_nles5 <- cor(X1_data)
 
-# 2. Prepare the correlation matrix for a heatmap visualization with ggplot2
+# Prepare the correlation matrix for a heatmap visualization with ggplot2
 corr_sampled_df_nles5 <- as.data.frame(corr_sampled_matrix_nles5)
 corr_sampled_df_nles5$Var1 <- rownames(corr_sampled_df_nles5) # Add a column for the first variable
 
@@ -612,27 +672,27 @@ corr_sapled_long_nles5 <- corr_sampled_df_nles5 |>
   ) |>
   # Ensure variables are factors with consistent levels for proper ordering on axes
   mutate(
-    Var1 = factor(Var1, levels = colnames(corr_sampled_matrix_nles5)),
-    Var2 = factor(Var2, levels = colnames(corr_sampled_matrix_nles5))
+    Var1 = factor(Var1, levels = ordered_input_levels),
+    Var2 = factor(Var2, levels = ordered_input_levels)
   )
 
-# 3. Create the correlation heatmap plot
+# Create the correlation heatmap plot
 plot_corr_sampled_heatmap_nles5 <-
   ggplot(corr_sapled_long_nles5, aes(x = Var1, y = Var2, fill = Correlation)) +
-  geom_tile(color = "white") + # Draws the colored tiles with white borders
-  geom_text(aes(label = round(Correlation, 2)), color = "black", size = 2) + # Add correlation values as text
-  scale_fill_gradient2(low = "darkred", mid = "white", high = "darkblue",
+  geom_tile(color = "white") +
+  geom_text(aes(label = round(Correlation, 2)), color = "black", size = 1.5) +
+  scale_fill_gradient2(low = "darkorange", mid = "white", high = "darkgreen",
                        midpoint = 0, limit = c(-1, 1), space = "Lab",
-                       name = "Correlation\nCoefficient") +
+                       name = "Correlation\ncoefficient") +
   labs(title = "Sampled",
-       x = "", y = "") + # No axis labels as parameter names serve this purpose
+       x = "", y = "") +
   theme_minimal() +
   theme(
-    axis.text.x = element_text(angle = 90, vjust = 0.5, hjust = 1, size = 6), # Rotate x-axis labels
-    axis.text.y = element_text(size = 6),
-    plot.title = element_text(size = 12, face = "bold", hjust = 0.5), # Center title
-    panel.grid.major = element_blank(), # Remove major grid lines
-    panel.grid.minor = element_blank(), # Remove minor grid lines
+    axis.text.x = element_text(angle = 90, vjust = 0.5, hjust = 1, size = 8),
+    axis.text.y = element_text(size = 8),
+    plot.title = element_text(size = 12, face = "bold", hjust = 0.5),
+    panel.grid.major = element_blank(),
+    panel.grid.minor = element_blank(),
     legend.position = "right",
     legend.title = element_text(size = 9),
     legend.text = element_text(size = 8)
@@ -642,10 +702,10 @@ plot_corr_sampled_heatmap_nles5 <-
 print(plot_corr_sampled_heatmap_nles5)
 
 
-# 1. Calculate the Pearson correlation matrix for the sampled input data (X1_data)
+# Calculate the Pearson correlation matrix for the sampled input data (X1_data)
 corr_matrix_nles5 <- cor(sasoutput_fil_NLES5)
 
-# 2. Prepare the correlation matrix for a heatmap visualization with ggplot2
+# Prepare the correlation matrix for a heatmap visualization with ggplot2
 corr_obs_df_nles5 <- as.data.frame(corr_matrix_nles5)
 corr_obs_df_nles5$Var1 <- rownames(corr_obs_df_nles5) # Add a column for the first variable
 
@@ -655,34 +715,33 @@ corr_obs_long_nles5 <- corr_obs_df_nles5 |>
     names_to = "Var2", # New column for the second variable
     values_to = "Correlation" # New column for the correlation value
   ) |>
-  # Ensure variables are factors with consistent levels for proper ordering on axes
   mutate(
-    Var1 = factor(Var1, levels = colnames(corr_matrix_nles5)),
-    Var2 = factor(Var2, levels = colnames(corr_matrix_nles5))
+    Var1 = factor(Var1, levels = ordered_input_levels),
+    Var2 = factor(Var2, levels = ordered_input_levels)
   )
 
-# 3. Create the correlation heatmap plot
+# Create the correlation heatmap plot
 plot_corr_obs_heatmap_nles5 <-
   ggplot(corr_obs_long_nles5, aes(x = Var1, y = Var2, fill = Correlation)) +
   geom_tile(color = "white") + # Draws the colored tiles with white borders
-  geom_text(aes(label = round(Correlation, 2)), color = "black", size = 2) + # Add correlation values as text
-  scale_fill_gradient2(low = "darkred", mid = "white", high = "darkblue",
+  geom_text(aes(label = round(Correlation, 2)), color = "black", size = 1.5) +
+  scale_fill_gradient2(low = "darkorange", mid = "white", high = "darkgreen",
                        midpoint = 0, limit = c(-1, 1), space = "Lab",
-                       name = "Correlation\nCoefficient") +
-  labs(title = "Observed",
-       x = "", y = "") + # No axis labels as parameter names serve this purpose
+                       name = "Correlation\ncoefficient") +
+  labs(title = "Training",
+       x = "", y = "") +
   theme_minimal() +
   theme(
-    axis.text.x = element_text(angle = 90, vjust = 0.5, hjust = 1, size = 6), # Rotate x-axis labels
-    axis.text.y = element_text(size = 6),
-    plot.title = element_text(size = 12, face = "bold", hjust = 0.5), # Center title
-    panel.grid.major = element_blank(), # Remove major grid lines
-    panel.grid.minor = element_blank(), # Remove minor grid lines
+    axis.text.x = element_text(angle = 90, vjust = 0.5, hjust = 1, size = 8),
+    axis.text.y = element_text(size = 8),
+    plot.title = element_text(size = 12, face = "bold", hjust = 0.5),
+    panel.grid.major = element_blank(),
+    panel.grid.minor = element_blank(),
     legend.position = "right",
     legend.title = element_text(size = 9),
     legend.text = element_text(size = 8)
   ) +
-  coord_fixed() # Ensures square tiles
+  coord_fixed()
 
 corr_heat_obsvssampl <-
 plot_corr_sampled_heatmap_nles5+
@@ -693,7 +752,7 @@ plot_corr_sampled_heatmap_nles5+
 ggsave("corr_heat_obsvssamp.png",
        corr_heat_obsvssampl,
        units = "mm",
-       width = 250, # Adjusted width for more facets
-       height = 100, # Adjusted height
+       width = 250,
+       height = 120,
        dpi = 300)
 
