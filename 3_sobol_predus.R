@@ -406,7 +406,7 @@ predus <- readRDS("pred_NLES5NUAR.RDS")
 uncplotNLES5 <-
   data.frame(L = sobol_results_nles5_model$y, Source= "Sampled") |>
   bind_rows(
-    data.frame(L = predus$L, Source = "Trainig")
+    data.frame(L = predus$L, Source = "Training")
   ) |> filter(L >= 0) |> # Filter out negative values if any
   ggplot(aes(x = L,linetype = Source)) +
   geom_density(fill = "#377ea2", color = "#377ea5", alpha = 0.2) +
@@ -415,8 +415,8 @@ uncplotNLES5 <-
        y = "Density") +
   scale_linetype_manual(
     name = "Data source",    # Legend title for linetype
-    values = c("Trainig" = "solid", "Sampled" = "dashed"),
-    labels = c("Trainig", "Sampled")
+    values = c("Training" = "solid", "Sampled" = "dashed"),
+    labels = c("Training", "Sampled")
   )+
   theme_minimal() +
   theme(#plot.title = element_text(size = 12, hjust = 0.5),
@@ -541,20 +541,20 @@ recode_map <- c(
   "M-4" = "Grass or grass-clover",
   "M-5" = "Grass for seed",
   "M-6" = "Set-aside",
-  "M-8" = "Sugar beet, fodder beet",
-  "M-9" = "Silage maize and potato",
+  "M-8" = "Beets and hemp",
+  "M-9" = "Maize and potato",
   "M-10" = "Winter oilseed rape",
   "M-11" = "Winter cereal after grass",
   "M-12" = "Maize after grass",
   "M-13" = "Spring cereal after grass",
-  "M-14" = "Grain legumes and spring oilseed rape",
+  "M-14" = "Grain legume and spring oilseed rape",
 
   # Main previous crop
   "MP-1" = "Winter cereal",
-  "MP-2" = "Other crops than winter cereals and grasses",
-  "MP-3" = "Grass or grass-clover",
-  "MP-4" = "Spring or winter crops after grasses",
-  "MP-12" = "Other crops than winter cereals and grasses",
+  "MP-2" = "Other crops",
+  "MP-3" = "Grass or grass-clover in rotation.",
+  "MP-4" = "Spring or winter crops grown after grass or grass-clover",
+  "MP-12" = "Other crops",
 
   # Winter vegetation cover
   "W-1" = "Winter cereal",
@@ -562,16 +562,16 @@ recode_map <- c(
   "W-3" = "Autumn cultivation",
   "W-4" = "Cover crops, undersown grass and set-aside",
   "W-5" = "Weeds and volunteers",
-  "W-6" = "Grass and grass-clover",
+  "W-6" = "Grass-clover, grass for seed, beet, winter oilseed rape",
   "W-8" = "Winter cereal after grass",
   "W-9" = "Grass ploughed late autumn or winter",
 
   # Winter previous crop
   "WP-1" = "Winter cereal",
   "WP-2" = "Bare soil",
-  "WP-3" = "Grass-clover",
+  "WP-3" = "Grass or grass-clover",
   "WP-4" = "Cover crops",
-  "WP-5" = "Grass for seed and set aside",
+  "WP-5" = "Grass for seed and set-aside",
   "WP-6" = "Beets and hemp",
   "WP-7" = "Bare soil after maize or potatoes",
   "WP-8" = "Winter oilseed rape",
@@ -579,8 +579,8 @@ recode_map <- c(
   "WP-10" = "Bare soil or winter cereal following grass-clover ploughed in autumn",
 
   # Winter cover
-  "WC-1" = "Grass-clover, grass, beets and winter oilseed rape",
-  "WC-2" = "Other, including bare soil and cover crops"
+  "WC-1" = "Crops with large N uptake in autumn",
+  "WC-2" = "Crops with low or moderate N uptake in autumn"
 
 )
 ### Figure 2 shows the distribution of categorical inputs used in the NLES5 model.----

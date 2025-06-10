@@ -32,6 +32,7 @@ nles5 <- function(Y, #Temporal tendency
               P=P,
               #Psas=Psas,
               S=S#,
+
               #L_percSAS=L_percSAS
               ))
 
