@@ -37,8 +37,8 @@ param_table <- data.frame(
   jbnr = sasoutput$jbnr,     # Soil type for P_func (1-3 for sandy, >3 for loamy)
 
   AAa = sasoutput$d1,        # April–August current year precipitation
-  AAb = sasoutput$d2,        # Sept–March current year precipitation
-  APb = sasoutput$d3#,     # Sept–March preceding year precipitation
+  AAb = sasoutput$d2+sasoutput$d3,        # Sept–March current year precipitation
+  APb = sasoutput$p2+sasoutput$p3#,     # Sept–March preceding year precipitation
   #p2 = sasoutput$p2,       # Perc other
   #p3 = sasoutput$p3       # Perc other
 
@@ -161,44 +161,57 @@ results_list <- pmap(param_table, run_nles5_pmap)
 
 # Combine the list of data frames (each representing a row of results)
 final_results <- bind_rows(results_list) |>
-  bind_cols(sasoutput)
+  bind_cols(param_table) |> bind_cols(sasoutput |> select(PUdvaskF))
+
 
 saveRDS(final_results, file = "pred_NLES5NUAR.RDS")
 
-# final_results |> ggplot(aes(x = PUdvaskF, y = L)) +
+
+
+## END -----
+
+
+### Compare results with SAS output ----
+
+summary(final_results$PUdvaskF)
+
+final_results |> ggplot(aes(x = PUdvaskF, y = L)) +
+  geom_point(col= "darkblue", alpha=0.2)  +
+  #geom_point(aes(y=L_percSAS), col="darkgreen", alpha=0.2)+
+  geom_abline(slope = 1, intercept = 0, linetype = "dashed", color = "black") +
+  theme_minimal() +
+  # scale_y_continuous(
+  #   sec.axis = sec_axis(
+  #     transform =  ~ .,
+  #     name = "L_percSAS" # Name for the secondary Y-axis
+  #   ))+
+  theme(legend.position = "bottom")
+#
+cor(final_results$L, final_results$PUdvaskF)
+
+final_results |> pivot_longer(cols = c(L, PUdvaskF),
+                              names_to = "variable",
+                              values_to = "Annual leaching") |>
+  ggplot(aes(x = `Annual leaching`, fill = variable, col = variable)) +
+  geom_density(alpha = 0.1) +
+  theme_minimal() +
+  scale_color_manual(values = c("darkblue","darkgreen"))+
+  scale_fill_manual(values = c("darkblue","darkgreen"))+
+  theme(legend.position = "bottom")
+# #
+# # Remaining differences ----
+#  final_results |> bind_cols(sasoutput) |>  ggplot(aes(x=Ntheta/ifelse(WC==1,1,1.205144),
+#   y = Nitrogen)) +
 #   geom_point(col= "darkblue", alpha=0.2)  +
-#   geom_point(aes(y=L_percSAS), col="darkgreen", alpha=0.2)+
 #   geom_abline(slope = 1, intercept = 0, linetype = "dashed", color = "black") +
 #   theme_minimal() +
-#   scale_y_continuous(
-#     sec.axis = sec_axis(
-#       transform =  ~ .,
-#       name = "L_percSAS" # Name for the secondary Y-axis
-#     ))+
 #   theme(legend.position = "bottom")
-#
-# final_results |> pivot_longer(cols = c(L,L_percSAS, PUdvaskF),
-#                               names_to = "variable",
-#                               values_to = "Annual leaching") |>
-#   ggplot(aes(x = `Annual leaching`, fill = variable, col = variable)) +
-#   geom_density(alpha = 0.1) +
-#   theme_minimal() +
-#   scale_color_manual(values = c("darkblue","darkgreen", "darkred"))+
-#   scale_fill_manual(values = c("darkblue","darkgreen", "darkred"))+
-#   theme(legend.position = "bottom")
-#
-#
-# final_results |> ggplot(aes(x = Nitrogen*ifelse(Vafgr_Kappa==1,1, 1.205144), y = Ntheta)) +
-#   geom_point(col= "darkblue", alpha=0.2)  +
-#   geom_abline(slope = 1, intercept = 0, linetype = "dashed", color = "black") +
-#   theme_minimal() +
-#   theme(legend.position = "bottom")
-#
-#
-#
-# final_results |> ggplot(aes(x = Drain, y = P ))+
-#   geom_point(col= "purple", alpha=0.2)  +
-#   geom_point(aes(y=Psas), col="pink", alpha=0.2)+
+# #
+# #
+# #
+# final_results |> bind_cols(sasoutput) |> ggplot(aes(x = crop, y = C, colour=as.factor(MP)))+
+#   geom_point(#col= "purple",
+#              alpha=0.4)  +
 #   geom_abline(slope = 1, intercept = 0, linetype = "dashed", color = "black") +
 #   scale_y_continuous(
 #     sec.axis = sec_axis(

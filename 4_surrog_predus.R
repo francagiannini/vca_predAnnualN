@@ -2,6 +2,7 @@
 library(tidyverse)
 library(readxl)
 library(randomForest)
+library(patchwork)
 library(xgboost)
 library(caret)
 
@@ -37,33 +38,21 @@ ggsave("density_plot_L.png",
        height = 100,
        dpi = 300)
 
-table(predus$SoilG)
 # 1.1. Renaming and grouping ----
 # Is d or p the percolation groups why some are negative?
-# hist(predus$d2)
-# hist(predus$p2)
-# plot(predus$d2, predus$p2)
+
 
 # 1.3 Select NLES5 inputs (i.e. variables) for analysis ----
 
-predus_fil <- predus |>
-  select(
-    L,    # Predicted values (response for RF/XGBoost)
-    NS, na, nlevelMin1, nlevelMin2, NlevelFix0, NlevelFix1, NlevelFix2,
-    NlevelGod0, NlevelGod1, NlevelGod2, Nudb, TN, Vafgr_Kappa, # Nitrogen related terms
-    Mau, Mfu, Vau, Vfu, # Crop related terms
-    CU,             # Clay content (Soil)
-    Indb_aar,     # Year trend
-    d1,d2, d3,
-    SoilG # Percolation/Drainage related terms
-  ) |> mutate(SoilG= recode_factor(SoilG, "S"=0, "C"=1)) |>
-  mutate(Mau=as.factor(Mau),
-         Mfu=as.factor(Mfu),
-         Vau=as.factor(Vau),
-         Vfu=as.factor(Vfu),
-         SoilG= as.factor(SoilG),
-         )
-
+predus_fil <- predus |> select(!c(PUdvaskF,C,P,S,Ntheta))|>
+  mutate(M=as.factor(M),
+         MP=as.factor(MP),
+         W=as.factor(W),
+         WP=as.factor(WP),
+         WC=as.factor(WC),
+         jbnr=as.factor(ifelse(jbnr<=3,0,1)))
+colnames(predus_fil)
+str(predus_fil)
 # --- 2. Random Forest Surrogate Model (Optimized for High Fidelity i.e, over fitting) ----
 
 set.seed(151190) # For reproducibility
@@ -108,8 +97,9 @@ rf_rmse_train <- sqrt(mean((predus_fil$L - rf_predictions_train)^2))
 cat("RMSE of High-Fidelity Random Forest on training data:", rf_rmse_train, "\n")
 
 # You might want to save this model if it's the one you'll use for Sobol
-saveRDS(rf_surrogate_model, "rf_surrogate_model_max_fidelity.rds")
+saveRDS(rf_surrogate_model, "rf_surrogate_model_max_fidelity.RDS")
 
+rf_surrogate_model$importance
 
 # --- 3. XGBoost Surrogate Model (Optimized for High Fidelity) ----
 
@@ -120,6 +110,7 @@ dummy_model <- dummyVars(~ ., sep="_",data = predus_fil)
 
 # Apply the dummy encoding
 ohe_data <- data.frame(predict(dummy_model, newdata = predus_fil))
+colnames(ohe_data)
 
 set.seed(151190) # For reproducibility
 
@@ -133,9 +124,9 @@ xgb_params_high_fidelity <- list(
   eval_metric = "rmse",         # Root Mean Squared Error
   nrounds = 5000,               # Very high number of boosting rounds
   eta = 0.005,                   # Very small learning rate
-  max_depth = 7,               # Deep trees to capture interactions
-  subsample = 0.7,              # Not Use all data for each tree
-  colsample_bytree = 0.8,       # Not Use all features for each tree
+  max_depth = 5,               # Deep trees to capture interactions
+  subsample = 0.5,              # Not Use all data for each tree
+  colsample_bytree = 0.7,       # Not Use all features for each tree
   min_child_weight = 0.8,         # Allow very small child weights
   gamma = 0,                    # No minimum loss reduction for splits
   lambda = 0,                   # No L2 regularization
@@ -218,14 +209,10 @@ combined_density_plot <- ggplot(combined_df, aes(x = L, fill = Type, color = Typ
 
 print(combined_density_plot)
 
-ggsave("density_plot_L.png",
-       plot = combined_density_plot,
-       units = "mm",
-       width = 150,
-       height = 100,
-       dpi = 300)
-
 # 4. Results and visualization ----
+#xgb_surrogate_model <- readRDS("xgb_surrogate_model_high_fidelity.rds")
+#rf_surrogate_model <-  readRDS("rf_surrogate_model_max_fidelity.RDS")
+
 # Variable Importance
 ## --- 4.1 Extract Feature Importance ----
 # The xgb.importance function requires the feature names.
@@ -237,117 +224,85 @@ importance_matrix <- xgb.importance(
 # Print the importance matrix (data.table)
 print(importance_matrix)
 
-xgb.plot.importance(importance_matrix = importance_matrix, top_n = 55) # Plot top N features
+xgb.plot.importance(importance_matrix = importance_matrix) # Plot top N features
 
 
-prefixes <- c("Mau", "Mfu", "Vau", "Vfu","SoilG", "d1","d2","d3",
-              "Indb_aar", "NS", "na", "nlevelMin1", "nlevelMin2",
-              "NlevelFix0", "NlevelFix1", "NlevelFix2",
-              "NlevelGod0", "NlevelGod1", "NlevelGod2",
-              "Nudb", "TN", "CU", "Vafgr_Kappa")
+prefixes <- c("M", "MP", "W", "WP","jbnr", "WC")
 
 
 importance_matrix_processed <- importance_matrix |>
-  mutate(BaseFeature = str_extract(Feature, paste0(
+  mutate(Input = str_extract(Feature, paste0(
     "^(",
-    paste(prefixes, collapse = "|"),
+    paste(colnames(predus_fil), collapse = "|"),
     "|[A-Za-z]+)(?=\\d|_|$)"
   )))
 
 
 ## 4.2. Renaming and grouping ----
-# Define the mapping for the crop prefixes
-translate <- c(
-  #𝐿 = 𝜏(𝑌 – 1991) + {(𝜇 + 𝜃𝑖𝑁 + 𝐶)𝜅}(𝑃 𝑆)p
-
-  # Y
-  "Indb_aar"="Y",
-
-  # N
-  "NS"="MNCS",
-  "na"="MNCA",
-  "nlevelMin1"="M1",
-  "nlevelMin2"="M2",
-  "NlevelFix0"="F0",
-  "NlevelFix1"="F1",
-  "NlevelFix2"="F2",
-  "NlevelGod0"="G0",
-  "NlevelGod1"="G1",
-  "NlevelGod2"="G2",
-  "Nudb"="MNudb",
-  "TN"="NT",
-  "Vafgr_Kappa"="WC",
-
-  # C
-  "Mau" = "M",
-  "Mfu" = "MP",
-  "Vau" = "W",
-  "Vfu" = "WP",
-
-  #P
-  "d1"="AAa",
-  "d2"="AAb",
-  "d3"="APb",
-  "SoilGS"="jbnr",
-  "SoilGC"="jbnr",
-  "SoilG"="jbnr",
-
-  #S
-  "CU"= "Clay")
 
 asignation <- c(
-  # Y
-  "Indb_aar"="Y",
+  "Y" = "Year",
+  "MNCS" = "Nitrogen",
+  "MNCA" = "Nitrogen",
+  "M1" = "Nitrogen",
+  "M2" = "Nitrogen",
+  "F0" = "Nitrogen",
+  "F1" = "Nitrogen",
+  "F2" = "Nitrogen",
+  "G0" = "Nitrogen",
+  "G1" = "Nitrogen",
+  "G2" = "Nitrogen",
+  "MNudb" = "Nitrogen",
+  "NT" = "Nitrogen",
+  "WC" = "Nitrogen",
+  "M" = "Crop",
+  "MP" = "Crop",
+  "W" = "Crop",
+  "WP" = "Crop",
+  "AAa" = "Percolation",
+  "AAb" = "Percolation",#"d2_d3",
+  "APb" = "Percolation",#"p2_p3",
+  "jbnr" = "Percolation",
+  "CU" = "Soil"
+)
 
-  # N
-  "NS"="N",
-  "na"="N",
-  "nlevelMin1"="N",
-  "nlevelMin2"="N",
-  "NlevelFix0"="N",
-  "NlevelFix1"="N",
-  "NlevelFix2"="N",
-  "NlevelGod0"="N",
-  "NlevelGod1"="N",
-  "NlevelGod2"="N",
-  "Nudb"="N",
-  "TN"="N",
-  "Vafgr_Kappa"="N",
+# Define color palette components.
+fixed_colors <- c(
+  "Soil" = "#e45a3d",
+  "Nitrogen" = "#377eb8",
+  "Crop" = "#3AA600",
+  "Year" = "#FFAE00",
+  "Percolation" = "#985aa1"
+)
+#levels
+ordered_input_levels <- c(
+  # Y components (from your previous 'Y' group Indb_aar)
+  "Y",
+  # N components (from your previous 'N' group NS, na, nlevel*, Nlevel*, Nudb, TN, Vafgr_Kappa)
+  "MNCS", "MNCA","MNudb", "M1", "M2", "F0", "F1", "F2", "G0", "G1", "G2","NT","WC",
+  # C components (from your previous 'C' group Mau, Mfu, Vau, Vfu)
+  "M", "MP", "W", "WP",
+  # P components (from your previous 'P' group d1, d2, d3, p2, p3, SoilGS, SoilGC, SoilG)
+  "AAa", "AAb", "APb",#"p2","p3", #for percolation s in sas
+  "jbnr", # Corresponds to SoilG
+  # S components (from your previous 'S' group CU)
+  "CU", "Clay"
 
-  # C
-  "Mau" = "C",
-  "Mfu" = "C",
-  "Vau" = "C",
-  "Vfu" = "C",
-
-  #P
-  "d1"="P",
-  "d2"="P",
-  "d3"="P",
-  "p2"="P",
-  "p3"="P",
-  "SoilGS"="P",
-  "SoilGC"="P",
-  "SoilG"="P",
-
-  #S
-  "CU"="S"
 )
 
 ## 4.3 Overal results Input contribution -----
 
 importance_rf <- as.data.frame(rf_surrogate_model$importance) |>
-  bind_cols('BaseFeature'=row.names(as.data.frame(rf_surrogate_model$importance)),
-            'ranger'=(rf_ranger_model$variable.importance)/sum(rf_ranger_model$variable.importance)*100) |>
-  mutate(Input = recode(BaseFeature, !!!translate)) |>
+  bind_cols('Input'=row.names(as.data.frame(rf_surrogate_model$importance)),
+            #'ranger'=(rf_ranger_model$variable.importance)/sum(rf_ranger_model$variable.importance)*100
+            ) |>
   mutate(IncMSE_rel = `%IncMSE` / sum(`%IncMSE`) * 100,
          IncNodePurity_rel=IncNodePurity/sum(IncNodePurity) * 100)
 
 
 # Group by the identified crop prefixes and sum their contributions
 contributions <- importance_matrix_processed |>
-  mutate(Component = recode(BaseFeature, !!!asignation),
-         Input = recode(BaseFeature, !!!translate))|>
+  mutate(Component = recode(Input, !!!asignation))|>
   group_by(Input, Component) |>
   summarise(
     Total_Gain = sum(Gain)*100,
@@ -356,16 +311,8 @@ contributions <- importance_matrix_processed |>
   ) |>
   left_join(importance_rf, by = 'Input') |>
   mutate(Input = factor(Input, levels = ordered_input_levels),
-         Component = factor(Component, levels = c("Y","N","C","S","P")))
+         Component = factor(Component, levels = c("Year","Nitrogen","Crop","Percolation","Soil")))
 
-# Define color palette components.
-fixed_colors <- c(
-  "S" = "#e45a3d",
-  "N" = "#377eb8",
-  "C" = "#3AA600",
-  "Y" = "#FFAE00",
-  "P" = "#985aa1"
-)
 
 # Visualization: Point Plot
 pp_plot <-
@@ -414,7 +361,7 @@ seggain <-
   contributions |>
   ggplot(aes(
     x = Total_Gain ,
-    y = fct_reorder(Input, desc(Component)),
+    y = reorder(Input, desc(Input)),
     color = Component
   )) +
   geom_point(size = 3) +
@@ -436,7 +383,7 @@ segfreq <-
   contributions |>
   ggplot(aes(
     x = Total_Frequency ,
-    y = fct_reorder(Input, desc(Component)),
+    y = reorder(Input, desc(Input)),
     color = Component
   )) +
   geom_point(size = 3) +
@@ -502,7 +449,6 @@ bar_plot <-
 bar_plot
 
 # second option for report
-
 
 ptotgain <- contributions |>
   ggplot(aes(y = Total_Gain,
@@ -608,7 +554,7 @@ gain_plot <-
   theme(axis.ticks.y = element_blank(), legend.position = "none") +
   plot_layout(
     ncol = 4,
-    widths = c(0.8,2.1,2)
+    widths = c(2,2,2.2)
   )+plot_annotation(tag_levels = 'a')
 
 gain_plot
@@ -783,7 +729,7 @@ library(pdp)
 #  theme_minimal()
 
 ### Figure 8 ------
-categorical_vars <- c("Mau", "Mfu", "Vau", "Vfu", "SoilG_1", "SoilG_2","SoilG" ,"Vafgr_Kappa")
+categorical_vars <- c("M", "MP", "W", "WP", "jbnr", "WC")
 
 # Function to compute PDP for both models
 compute_pdp <- function(feature) {
@@ -821,8 +767,9 @@ pdp_cont <- lapply(setdiff(row.names(rf_surrogate_model$importance),
 pdpplot <- do.call(rbind,pdp_cont) |>
   filter(model=="XGBoost")|>
   mutate(Component=recode(variable, !!!asignation),
-         Input=recode(variable,!!!translate)) |>
-  mutate(Component = factor(Component, levels = c("Y","N","C","S","P")),
+         Input=variable
+         ) |>
+  mutate(Component = factor(Component, levels = c("Year","Nitrogen","Crop","Soil","Percolation")),
          Input = factor(Input, levels = ordered_input_levels)) |>
   filter(Input!= "G2")|>
   ggplot(aes(x = covariable, y = yhat, color=Component#, linetype = model
@@ -858,80 +805,86 @@ ggsave("pdp.png",
 
 ## --- 4.5. Partial Dependence Plots for Categorical Variables ----
 
-
-feature <- "d2"  # or any other feature name
-
-# Create the sequence of values for the feature
-feature_vals <- seq(
-  min(ohe_data[[feature]], na.rm = TRUE),
-  max(ohe_data[[feature]], na.rm = TRUE),
-  length.out = 50
-)
-
-# Create the prediction grid with correct column names
-pred_grid <- expand.grid(
-  SoilG_1 = factor(c(0, 1)),
-  dummy = feature_vals
-)
-
-# Rename 'dummy' to the actual feature name
-names(pred_grid)[names(pred_grid) == "dummy"] <- feature
-
-# Now call pdp::partial
-pdp_cat <- pdp::partial(
-  object = xgb_surrogate_model,
-  pred.var = c(feature, "SoilG_1"),
-  train = as.data.frame(ohe_data |> dplyr::select(xgb_surrogate_model$feature_names)),
-  pred.grid = pred_grid
-)
-
-pdp_cat |>
-  ggplot(aes(x = d2, y = yhat, color = as.factor(SoilG_1))) +
-  geom_point(size = 1) +
-  geom_smooth(method = "loess", se = TRUE, size = 0.5) +
-  geom_line() +
-  labs(
-    title = paste("Partial Dependence Plot for", feature),
-    x = feature,
-    y = "Predicted Response"
-  ) +
-  theme_minimal()
-
-
-pdp3 <- lapply(c("d1", "d2", "d3", "Indaar"),
-               pdp_point3)
-
-# # --- 5. Shapley Values for Feature Importance only xgb---
-# # Load specific packages for SHAP values
-# library(shapr)      # For calculating SHAP values
-# library(shapviz)    # For visualizing SHAP values
 #
-# # Calculates SHAP values for the model using the preprocessed training data.
-# shap_values_xgb <-
-#   shapviz(xgb_surrogate_model,
-#           X_pred =data.matrix(ohe_data |>
-#                                 select(xgb_surrogate_model$feature_names)))
+# feature <- "d2"  # or any other feature name
+#
+# # Create the sequence of values for the feature
+# feature_vals <- seq(
+#   min(ohe_data[[feature]], na.rm = TRUE),
+#   max(ohe_data[[feature]], na.rm = TRUE),
+#   length.out = 50
+# )
+#
+# # Create the prediction grid with correct column names
+# pred_grid <- expand.grid(
+#   SoilG_1 = factor(c(0, 1)),
+#   dummy = feature_vals
+# )
+#
+# # Rename 'dummy' to the actual feature name
+# names(pred_grid)[names(pred_grid) == "dummy"] <- feature
+#
+# # Now call pdp::partial
+# pdp_cat <- pdp::partial(
+#   object = xgb_surrogate_model,
+#   pred.var = c(feature, "SoilG_1"),
+#   train = as.data.frame(ohe_data |> dplyr::select(xgb_surrogate_model$feature_names)),
+#   pred.grid = pred_grid
+# )
+#
+# pdp_cat |>
+#   ggplot(aes(x = d2, y = yhat, color = as.factor(SoilG_1))) +
+#   geom_point(size = 1) +
+#   geom_smooth(method = "loess", se = TRUE, size = 0.5) +
+#   geom_line() +
+#   labs(
+#     title = paste("Partial Dependence Plot for", feature),
+#     x = feature,
+#     y = "Predicted Response"
+#   ) +
+#   theme_minimal()
 #
 #
-# # Visualize SHAP values
-# sv_importance(shap_values_xgb, show_numbers = TRUE)
-# sv_importance(shap_values_xgb, kind = "beeswarm")
+# pdp3 <- lapply(c("d1", "d2", "d3", "Indaar"),
+#                pdp_point3)
 #
-# sv_dependence(shap_values_xgb, v = setdiff(row.names(rf_surrogate_model$importance),
-#                                            categorical_vars), color_var = "SoilG")
-#
-#
-# sv_dependence(shap_values_xgb, v = "d1", color_var = "SoilG_1")
-#
-#
-# sv_interaction(shap_values_xgb, max_display = 20, show_numbers = TRUE)
-#
-#
+# # # --- 5. Shapley Values for Feature Importance only xgb---
+# # # Load specific packages for SHAP values
+# # library(shapr)      # For calculating SHAP values
+# # library(shapviz)    # For visualizing SHAP values
+# #
+# # # Calculates SHAP values for the model using the preprocessed training data.
+# # shap_values_xgb <-
+# #   shapviz(xgb_surrogate_model,
+# #           X_pred =data.matrix(ohe_data |>
+# #                                 select(xgb_surrogate_model$feature_names)))
+# #
+# #
+# # # Visualize SHAP values
+# # sv_importance(shap_values_xgb, show_numbers = TRUE)
+# # sv_importance(shap_values_xgb, kind = "beeswarm")
+# #
+# # sv_dependence(shap_values_xgb, v = setdiff(row.names(rf_surrogate_model$importance),
+# #                                            categorical_vars), color_var = "SoilG")
+# #
+# #
+# # sv_dependence(shap_values_xgb, v = "d1", color_var = "SoilG_1")
+# #
+# #
+# # sv_interaction(shap_values_xgb, max_display = 20, show_numbers = TRUE)
+# #
+# #
 
-cv_results_robust <- sasoutput_fil_NLES5 |>
+# ---- Summary table -----
+cv_results_robust <- predus |>
   summarise(across(everything(),
                    # Using abs() on the mean for a more stable calculation
                    ~ (sd(.x, na.rm = TRUE) / abs(mean(.x, na.rm = TRUE))) * 100
   ))
 
 print(cv_results_robust)
+
+
+left_join( total_order_indices_nles5 |> rename(Input=Variable),
+           contributions,
+           by = "Input")

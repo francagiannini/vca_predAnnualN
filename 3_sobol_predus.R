@@ -12,7 +12,7 @@ library(purrr)
 library(GGally)
 
 # Labeller function for facet plots, using the 'translate' vector
-facet_labels_expr <- as_labeller(translate)
+#facet_labels_expr <- as_labeller(translate) #in script 4
 
 # --- 1. Define the NLES5 Model Wrapper Function for Sobol' ----
 # This function takes a matrix 'X' (where each row is a sample and each column is an input variable)
@@ -126,9 +126,9 @@ sasoutput_fil_NLES5 <- data.frame(
   CU = sasoutput$CU,
   jbnr = sasoutput$jbnr,
 
-  AAa = sasoutput$d1,
-  AAb = sasoutput$d2,
-  APb = sasoutput$d3#,
+  AAa = sasoutput$d1,        # April–August current year precipitation
+  AAb = sasoutput$d2+sasoutput$d3,        # Sept–March current year precipitation
+  APb = sasoutput$p2+sasoutput$p3#,     # Sept–March preceding year precipitation
   #p2 = sasoutput$p2,
   #p3 = sasoutput$p3,
 
@@ -208,41 +208,55 @@ total_order_indices_nles5 <- data.frame(
 # Combine both sets of indices into a single data frame
 sobol_df_nles5 <- dplyr::left_join(first_order_indices_nles5, total_order_indices_nles5, by = "Variable")
 
-
 # Invert the vector
-translate_inverse <- c(
-  "Y" = "Indb_aar",
-  "MNCS" = "NS",
-  "MNCA" = "na",
-  "M1" = "nlevelMin1",
-  "M2" = "nlevelMin2",
-  "F0" = "NlevelFix0",
-  "F1" = "NlevelFix1",
-  "F2" = "NlevelFix2",
-  "G0" = "NlevelGod0",
-  "G1" = "NlevelGod1",
-  "G2" = "NlevelGod2",
-  "MNudb" = "Nudb",
-  "NT" = "TN",
-  "WC" = "Vafgr_Kappa",
-  "M" = "Mau",
-  "MP" = "Mfu",
-  "W" = "Vau",
-  "WP" = "Vfu",
-  "AAa" = "d1",
-  "AAb" = "d2",
-  "APb" = "d3",
-  "jbnr" = "SoilG",
-  "Clay" = "CU"
+asignation <- c(
+  "Y" = "Year",
+  "MNCS" = "Nitrogen",
+  "MNCA" = "Nitrogen",
+  "M1" = "Nitrogen",
+  "M2" = "Nitrogen",
+  "F0" = "Nitrogen",
+  "F1" = "Nitrogen",
+  "F2" = "Nitrogen",
+  "G0" = "Nitrogen",
+  "G1" = "Nitrogen",
+  "G2" = "Nitrogen",
+  "MNudb" = "Nitrogen",
+  "NT" = "Nitrogen",
+  "WC" = "Nitrogen",
+  "M" = "Crop",
+  "MP" = "Crop",
+  "W" = "Crop",
+  "WP" = "Crop",
+  "AAa" = "Percolation",
+  "AAb" = "Percolation",#"d2_d3",
+  "APb" = "Percolation",#"p2_p3",
+  "jbnr" = "Percolation",
+  "CU" = "Soil"
 )
 
 # Define color palette components.
 fixed_colors <- c(
-  "S" = "#e45a3d",
-  "N" = "#377eb8",
-  "C" = "#3AA600",
-  "Y" = "#FFAE00",
-  "P" = "#985aa1"
+  "Soil" = "#e45a3d",
+  "Nitrogen" = "#377eb8",
+  "Crop" = "#3AA600",
+  "Year" = "#FFAE00",
+  "Percolation" = "#985aa1"
+)
+#levels
+ordered_input_levels <- c(
+  # Y components (from your previous 'Y' group Indb_aar)
+  "Y",
+  # N components (from your previous 'N' group NS, na, nlevel*, Nlevel*, Nudb, TN, Vafgr_Kappa)
+  "MNCS", "MNCA","MNudb", "M1", "M2", "F0", "F1", "F2", "G0", "G1", "G2","NT","WC",
+  # C components (from your previous 'C' group Mau, Mfu, Vau, Vfu)
+  "M", "MP", "W", "WP",
+  # P components (from your previous 'P' group d1, d2, d3, p2, p3, SoilGS, SoilGC, SoilG)
+  "AAa", "AAb", "APb",#"p2","p3", #for percolation s in sas
+  "jbnr", # Corresponds to SoilG
+  # S components (from your previous 'S' group CU)
+  "CU", "Clay"
+
 )
 
 # Reshape data for ggplot2 and add descriptive labels for plotting
@@ -252,10 +266,10 @@ plot_sobol_data_nles5 <- sobol_df_nles5 |>
     Conf_Low = ifelse(Index_Type == "S1", S1_conf_low, ST_conf_low),
     Conf_High = ifelse(Index_Type == "S1", S1_conf_high, ST_conf_high),
     # Use the 'translate' vector to get readable labels for the input parameters
-    Input = recode(Variable, !!!translate_inverse)) |>
-    mutate(Component = recode(Input, !!!asignation),
+    Component = recode(Variable, !!!asignation),
            Variable = factor(Variable, levels = ordered_input_levels)) |>
-  mutate(Component = factor(Component, levels = c("Y", "N", "C", "P", "S")))
+  mutate(Component = factor(Component,
+                            levels = c("Year", "Nitrogen", "Crop", "Percolation", "Soil")))
 
 # --- Create the Sobol' Indices Plot ---
 sobolplotNLES5 <-
@@ -310,22 +324,18 @@ sobolplotNLES5_vertical_ordered <-
   ) +
   coord_flip() + # makes the plot vertical!
   labs(
-    title = "Sensitivity estimates",
+    #title = "Sensitivity estimates",
     x = "Input parameter",
-    y = "Index Value",
+    y = "Sensitivity estimates",
     fill = "Component"
   ) +
   theme_minimal(base_size = 10) +
   theme(
     axis.text.y = element_text(size = rel(0.9)),
     axis.text.x = element_text(size = rel(0.9)),
-    axis.title.y = element_text(size = rel(1.0), margin = margin(r = 10)),
-    axis.title.x = element_text(size = rel(1.0), margin = margin(t = 10)),
-    plot.title = element_text(
-      size = rel(1.2),
-      hjust = 0.5,
-      face = "bold"
-    ),
+
+    #axis.title.y = element_text(size = rel(1.0), margin = margin(r = 10)),
+    #axis.title.x = element_text(size = rel(1.0), margin = margin(t = 10)),
     legend.position = "right",
     panel.grid.major.y = element_blank(), # Removes horizontal grid lines (along parameters)
     panel.grid.major.x = element_line(color = "gray90"), # Keeps vertical grid lines (along values)
@@ -335,70 +345,78 @@ sobolplotNLES5_vertical_ordered <-
 
  print(sobolplotNLES5_vertical_ordered)
 
+ # ggsave("sobolplotNLES5_vertical_ordered.png",
+ #        sobolplotNLES5_vertical_ordered,
+ #        width = 180, height = 220, units = "mm", dpi = 300)
+
+ sobolplotNLES5_vertical_ordere_point <-
+   ggplot(plot_sobol_data_nles5,
+          aes(
+            x = reorder(Variable,desc(Variable)), # 'Input' is now an ordered factor
+            y = Value,
+            fill = Component,
+            color = Component,
+            alpha = Index_Type,
+            #shape = Index_Type # Add shape aesthetic for points
+          )) +
+   geom_point(
+     stat = "identity",
+     position = position_dodge(width = 0.9),
+     size = 3.5 # Adjust point size for better visibility
+   ) +
+   geom_bar(
+     stat = "identity",
+     position = position_dodge(width = 0.9),
+     colour=NA
+   ) +
+   #geom_hline(yintercept = 0, linetype = "dashed", color = "gray50") + # Optional diagonal line
+   geom_errorbar(
+     aes(ymin = Conf_Low, ymax = Conf_High, group = Index_Type), # Corrected ymin
+     position = position_dodge(width = 0.9),
+     width = 0.25,
+     linewidth = 0.5
+   ) +
+   scale_fill_manual(values = fixed_colors) + # Your custom colors
+   scale_color_manual(values = fixed_colors) +
+   scale_alpha_manual(
+     values = c("S1" = 0.3, "ST" = 1.0),
+     name = "Sobol' Index",
+     labels = c("S1 (First-order)", "ST (Total-order)")
+   ) +
+   coord_flip() + # This makes the plot vertical!
+   labs(
+     #title = "Sensitivity estimates NLES5 Model",
+     x = "Input parameter", # This label will now appear on the Y-axis
+     y = "Sensitivity Index Value", # This label will now appear on the X-axis
+   ) +
+   theme_minimal(base_size = 10) +
+   theme(
+     axis.text.y = element_text(size = rel(0.9)), # Was axis.text.x, now for Input labels
+     axis.text.x = element_text(size = rel(0.9)), # Was axis.text.y, now for Value labels
+     # No angle needed for axis.text.y (Input labels) if they fit well
+     # If Input labels are long, you might adjust their properties or plot margins
+     #axis.title.y = element_text(size = rel(1.0), margin = margin(r = 10)), # Was axis.title.x
+     #axis.title.x = element_text(size = rel(1.0), margin = margin(t = 10)), # Was axis.title.y
+     # plot.title = element_text(
+     #   size = rel(1.2),
+     #   hjust = 0.5,
+     #   face = "bold"
+     # ),
+     legend.position = "right",
+     legend.title = element_text(size = rel(1.0), face = "bold"),
+     legend.text = element_text(size = rel(0.9)),
+     panel.grid.major.y = element_blank(), # Removes horizontal grid lines (along parameters)
+     panel.grid.major.x = element_line(color = "gray90"), # Keeps vertical grid lines (along values)
+     panel.grid.minor = element_blank()
+   ) +
+   guides(alpha = guide_legend(override.aes = list(fill = 'gray50')))
+
+ print(sobolplotNLES5_vertical_ordere_point)
+
  ggsave("sobolplotNLES5_vertical_ordered.png",
-        sobolplotNLES5_vertical_ordered,
+        sobolplotNLES5_vertical_ordere_point,
         width = 180, height = 220, units = "mm", dpi = 300)
-#
-#  sobolplotNLES5_vertical_ordere_point <-
-#    ggplot(plot_sobol_data_nles5_ordered, # Use the new ordered data
-#           aes(
-#             x = Variable, # 'Input' is now an ordered factor
-#             y = Value,
-#             fill = Component,
-#             color = Component,
-#             alpha = Index_Type,
-#             shape = Index_Type # Add shape aesthetic for points
-#           )) +
-#    geom_point(
-#      stat = "identity",
-#      position = position_dodge(width = 0.9),
-#      linewidth = 0.5,
-#      size = 4 # Adjust point size for better visibility
-#    ) +
-#    geom_errorbar(
-#      aes(ymin = Conf_Low, ymax = Conf_High, group = Index_Type), # Corrected ymin
-#      position = position_dodge(width = 0.9),
-#      width = 0.25,
-#      color = "gray50",
-#      linewidth = 0.5
-#    ) +
-#    scale_fill_manual(values = fixed_colors) + # Your custom colors
-#    scale_color_manual(values = fixed_colors) +
-#    scale_alpha_manual(
-#      values = c("S1" = 0.4, "ST" = 1.0),
-#      name = "Sobol' Index",
-#      labels = c("S1 (First-order)", "ST (Total-order)")
-#    ) +
-#    coord_flip() + # This makes the plot vertical!
-#    labs(
-#      title = "Sensitivity estimates NLES5 Model",
-#      x = "Input parameter", # This label will now appear on the Y-axis
-#      y = "Sensitivity Index Value", # This label will now appear on the X-axis
-#    ) +
-#    theme_minimal(base_size = 10) +
-#    theme(
-#      axis.text.y = element_text(size = rel(0.9)), # Was axis.text.x, now for Input labels
-#      axis.text.x = element_text(size = rel(0.9)), # Was axis.text.y, now for Value labels
-#      # No angle needed for axis.text.y (Input labels) if they fit well
-#      # If Input labels are long, you might adjust their properties or plot margins
-#      axis.title.y = element_text(size = rel(1.0), margin = margin(r = 10)), # Was axis.title.x
-#      axis.title.x = element_text(size = rel(1.0), margin = margin(t = 10)), # Was axis.title.y
-#      plot.title = element_text(
-#        size = rel(1.2),
-#        hjust = 0.5,
-#        face = "bold"
-#      ),
-#      legend.position = "right",
-#      legend.title = element_text(size = rel(1.0), face = "bold"),
-#      legend.text = element_text(size = rel(0.9)),
-#      panel.grid.major.y = element_blank(), # Removes horizontal grid lines (along parameters)
-#      panel.grid.major.x = element_line(color = "gray90"), # Keeps vertical grid lines (along values)
-#      panel.grid.minor = element_blank()
-#    ) +
-#    guides(alpha = guide_legend(override.aes = list(fill = 'gray50')))
-#
-#  print(sobolplotNLES5_vertical_ordere_point)
-#
+ #
 #   ## 5.0 Comparison of Sampled vs. Original Output Distributions ----
 # --- Create the Uncertainty Plot (Histogram of Model Output) ---
 ### Figure 1 This shows the distribution of the NLES5 model's output (L) ----
@@ -459,22 +477,6 @@ original_data_long_nles5 <- sasoutput_fil_NLES5 |>
   na.omit() |> # Remove any NA values from original data for fair comparison
   mutate(Source = "Training") # Label this dataset
 
-# --- Combine both data frames into a single data frame ---
-ordered_input_levels <- c(
-   # Y components (from your previous 'Y' group Indb_aar)
-  "Y",
-  # N components (from your previous 'N' group NS, na, nlevel*, Nlevel*, Nudb, TN, Vafgr_Kappa)
-  "MNCS","MNudb", "MNCA", "M1", "M2", "F0", "F1", "F2", "G0", "G1", "G2","NT","WC",
-  # C components (from your previous 'C' group Mau, Mfu, Vau, Vfu)
-  "M", "MP", "W", "WP",
-  # P components (from your previous 'P' group d1, d2, d3, p2, p3, SoilGS, SoilGC, SoilG)
-  "AAa", "AAb", "APb",#"p2","p3", #for percolation s in sas
-  "jbnr", # Corresponds to SoilG
-  # S components (from your previous 'S' group CU)
-  "CU", "Clay"
-
-)
-
 combined_plot_data_nles5 <-
   bind_rows(sampled_data_long_nles5, original_data_long_nles5) |>
   mutate(
@@ -488,7 +490,7 @@ combined_plot_data_nles5 <-
 dist_samplvs_orig_nles5_cont <-
   combined_plot_data_nles5 |>
   filter(!Parameter %in% c("M", "MP", "W", "WP", "WC", "jbnr","Y")) |>
-  mutate(Component = recode(recode(Parameter, !!!translate_inverse), !!!asignation)) |>
+  mutate(Component = recode(Parameter, !!!asignation)) |>
   arrange(Value) |>
   ggplot(aes(x = Value, linetype = Source, fill = Component, colour = Component)) +
   geom_density(alpha = 0.2, linewidth = 0.8) +
@@ -590,7 +592,7 @@ data_for_plot_cat <- combined_plot_data_nles5 |>
     temp_key = paste0(Parameter, "-", as.character(Value)),
     Value = recode(temp_key, !!!recode_map, .default = as.character(Value)),
     Value = as.factor(Value), # Convert back to factor
-    Component = recode(recode(Parameter, !!!translate_inverse), !!!asignation)
+    Component = recode(Parameter, !!!asignation)
   ) |>
   count(Parameter, Component, Source, Value, name = "N") |>
   group_by(Parameter, Component, Source) |>
