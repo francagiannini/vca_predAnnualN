@@ -14,18 +14,18 @@ nles5 <- function(Y, #Temporal tendency
   # Calculate the nitrogen leaching using the N function with provided parameters
   #𝐿 = 𝜏(𝑌 – 1991) + {(𝜇 + 𝜃𝑖𝑁 + 𝐶)^𝜅}(𝑃 𝑆)p
 
-  L <-  tao * (Y - 1991) + ((mu + Ntheta + C)^k)*(P * S) * rho
+  L <-  tao * (Y - 1991) + ((mu + Ntheta + C)^k)*((P * S) * rho)
 
   # Calculate L using the percolation function as found in SAS code
   # L_percSAS <-  tao * (Y - 1991) + ((mu + Ntheta + C)^k)*(Psas * S) * rho
-  # Calculate L using tby rho affecting entire expression as in SAS code
-  # Lwr <- (tao * (Y - 1991) + ((mu + Ntheta + C)^k)*(P * S)) * rho
+  # Calculate L by rho affecting entire expression as in SAS code
+  Lwr <- (tao * (Y - 1991) + ((mu + Ntheta + C)^k)*(P * S)) * rho
 
   #𝐿NUAR = (𝜏(𝑌 − 1991) + {(𝜇 + 𝜃𝑖𝑁 + 𝐶)𝜅}(𝑃 𝑆)p)(1 - EEA Fdato - EMA - ETS)(1- EPJ)
   # L_nuar <- L * (1 - EEA*Fdato - EMA - ETS) * (1 - EPJ)
 
   return(list(L=L,
-              #Lwr=Lwr,
+              Lwr=Lwr,
               #L_nuar=L_nuar,
               Ntheta=Ntheta,
               C=C,

@@ -46,6 +46,8 @@ hist(sasoutput$p2)
 plot(sasoutput$d2, sasoutput$p2)
 
 # 1.3 Select NLES5 inputs (i.e. variables) for analysis ----
+sasoutput <- read_excel("Scenarier20190909B4_found0325.xls")|>
+  rename('na' = `NA`)
 
 sasoutput_fil <- sasoutput |>
   select(

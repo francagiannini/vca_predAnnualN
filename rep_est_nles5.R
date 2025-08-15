@@ -83,6 +83,9 @@ asignation <- c(
   "eta3"= "Percolation-Soil"
 )
 
+old_pred <- readxl::read_excel("C:/Users/au710823/OneDrive - Aarhus universitet/NyMarkmodel/NLES5_SAS/Scenarier20190909B4_found0325.xls",
+  sheet = "PredB4")
+
 # # Define color palette components.
 # fixed_colors <- c(
 #   "Soil" = "#e45a3d",
@@ -130,59 +133,79 @@ combined_param_filtered <- combined_param %>%
 # The plot displays the estimate with confidence intervals for each parameter,
 # separated by model.
 ggplot(combined_param_filtered, aes(x = Parameter, y = Estimate, color = Estimation)) +
-  geom_point(position = position_dodge(width = 0.5)) +
-  geom_errorbar(aes(ymin = Conf.Lower, ymax = Conf.Upper), width = 0.2, position = position_dodge(width = 0.5)) +
+  geom_point(position = position_dodge(width = 0.5), size=2, alpha=.7) +
+  geom_errorbar(aes(ymin = Conf.Lower, ymax = Conf.Upper),
+                width = 0.2, position = position_dodge(width = 0.5)) +
   geom_hline(yintercept = 0, linetype = "dashed", color = "gray50") +
   coord_flip() + # Flip the coordinates to make it a forest plot
   labs(
-    title = "Comparison of Parameter Estimates (Original vs. New Model)",
+    title = "Parameter estimates NLES5 (KK19) vs. Whitout trend (fgk25)",
     y = "Estimate",
     x = "Parameter"
   ) +
   theme_minimal() +
+  scale_color_manual(values = c("KK19" = "#377eb8", "fgk25" = "darkorange")) +
   facet_wrap(~ Component, scales = "free") +
   theme(
     legend.position = "bottom",
-    plot.title = element_text(hjust = 0.5, face = "bold"),
-    axis.text.y = element_text(size = 8),
+    plot.title = element_text(hjust = 0.5),
+    axis.text.y = element_text(size = 10),
     axis.title.y = element_blank()
   )
 
 ### Error
 
 new_pred <- readxl::read_excel("C:/Users/au710823/OneDrive - Aarhus universitet/NyMarkmodel/NLES5_SAS/fgk25.XLS",
-                                   sheet = "PredB4")
+                                   sheet = "PredB4_25")
 
 head(new_pred)
 
+mean(new_pred$RUdvaskF_f)
 
-new_pred |> ggplot(aes(x=PUdvaskF, y=Udvask, colour = as.character(SoilG) )) +
+new_pred |> ggplot(aes(x=PUdvaskF, y=PUdvaskF_f2#, colour = as.character(SoilG)
+                       )) +
   geom_point(alpha=.7) +
   geom_abline(slope = 1, intercept = 0, linetype = "dashed") +
   labs(
-    title = "Comparison of Predicted vs. Observed Values",
-    x = "Predicted Values",
-    y = "Observed Values"
+    #title = "Comparison of Predicted vs. Observed Values",
+    x= "Original NLES5 (KK19)",
+    y = "Without trend (fgk25)"
+    #x = "Predicted Values",
+    #y = "Observed Values"
   ) +
   scale_color_grey()+
   theme_minimal()
 
-new_pred |> ggplot(aes(x=RUdvaskF)) +
+new_pred |> ggplot(aes(x=RUdvaskF_f)) +
   geom_histogram(alpha=.7) +
   scale_color_grey()+
   theme_minimal()
 
 
 #MSE RMSE
-new_pred |> #group_by(Mau) |>
+old_pred |> #group_by(Mau) |>
   summarise(
   MSE = mean((Udvask - PUdvaskF)^2),
   RMSE = sqrt(mean((Udvask - PUdvaskF)^2)),
   RMSE_rel = sqrt(mean((Udvask - PUdvaskF)^2))/mean(Udvask)*100)
 
 
-new_pred |> #group_by(Mau) |>
+old_pred |> #group_by(Mau) |>
   summarise(
     MSE = mean((sqrt(Udvask) - sqrt(PUdvaskF))^2),
     RMSE = sqrt(mean((sqrt(Udvask) - sqrt(PUdvaskF))^2)),
     RMSE_rel = sqrt(mean((sqrt(Udvask) - sqrt(PUdvaskF))^2))/mean(sqrt(Udvask))*100)
+
+new_pred |> #group_by(Mau) |>
+  summarise(
+    MSE = mean((Udvask - PUdvaskF_f2)^2),
+    RMSE = sqrt(mean((Udvask - PUdvaskF_f2)^2)),
+    RMSE_rel = sqrt(mean((Udvask - PUdvaskF_f2)^2))/mean(Udvask)*100)
+
+
+new_pred |> #group_by(Mau) |>
+  summarise(
+    MSE = mean((sqrt(Udvask) - sqrt(PUdvaskF_f2))^2),
+    RMSE = sqrt(mean((sqrt(Udvask) - sqrt(PUdvaskF_f2))^2)),
+    RMSE_rel = sqrt(mean((sqrt(Udvask) - sqrt(PUdvaskF_f2))^2))/mean(sqrt(Udvask))*100)
+
