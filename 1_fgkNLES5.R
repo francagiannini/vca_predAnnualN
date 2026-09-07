@@ -150,7 +150,7 @@ C_func <- function(M, W, MP, WP) {
 }
 
 # S component ----
-S_func <-  function(P_ler=0.001849, CU){
+S_func <-  function(P_ler=-0.001849, CU){
 
   S <- exp(P_ler*CU)
 
