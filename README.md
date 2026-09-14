@@ -22,3 +22,6 @@ The analysis is structured in the following steps, with each script correspondin
 
 * **4. Validation via Model Surrogation**
     * The surrogate models and results is contained in [`4_surrog_predus.R`](https://github.com/francagiannini/vca_predAnnualN/blob/main/4_surrog_predus.R).
+
+
+⚠️ This repository represents a research version created for this specific purpose, independent of any official regulatory tools.
